@@ -81,6 +81,22 @@ const CodeManagementScreen: React.FC = () => {
     const [batchCase, setBatchCase] = useState('O Enigma do Relógio');
     const [batchQuantity, setBatchQuantity] = useState('10');
 
+    // Fetched Cases for Dropdown
+    const [availableCases, setAvailableCases] = useState<{ value: string, label: string }[]>([]);
+
+    useEffect(() => {
+        const fetchCases = async () => {
+            const { data } = await supabase.from('cases').select('title');
+            if (data) {
+                setAvailableCases(data.map((c: any) => ({ value: c.title, label: c.title })));
+                // Select first one by default if available
+                if (data.length > 0) setBatchCase(data[0].title);
+                else setBatchCase('');
+            }
+        };
+        fetchCases();
+    }, []);
+
     const filteredCodes = codes.filter(code => {
         const matchesSearch = code.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
             code.caseName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -94,6 +110,10 @@ const CodeManagementScreen: React.FC = () => {
     };
 
     const handleGenerateBatch = async () => {
+        if (!batchCase) {
+            showNotification('Selecione um caso para gerar códigos', 'error');
+            return;
+        }
         setIsGenerating(true);
         try {
             const quantity = parseInt(batchQuantity);
@@ -173,11 +193,7 @@ const CodeManagementScreen: React.FC = () => {
                                 label="Vincular ao Caso"
                                 value={batchCase}
                                 onChange={(e) => setBatchCase(e.target.value)}
-                                options={[
-                                    { value: 'O Enigma do Relógio', label: 'O Enigma do Relógio' },
-                                    { value: 'Operação Coldbridge', label: 'Operação Coldbridge' },
-                                    { value: 'O Último Suspiro', label: 'O Último Suspiro' },
-                                ]}
+                                options={availableCases.length > 0 ? availableCases : [{ value: '', label: 'Nenhum caso cadastrado' }]}
                             />
                             <Input
                                 label="Quantidade de Códigos"

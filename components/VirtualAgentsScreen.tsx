@@ -84,9 +84,7 @@ const VirtualAgentsScreen: React.FC = () => {
 
     // Chat Test State
     const [testMessage, setTestMessage] = useState('');
-    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'agent', text: string }[]>([
-        { role: 'agent', text: 'Olá. Aqui é o Inspetor Lestrade. O que você descobriu na cena do crime?' }
-    ]);
+    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'agent', text: string }[]>([]);
 
     const selectedAgent = agents.find(a => a.id === selectedAgentId) || agents[0];
 
@@ -420,15 +418,12 @@ const VirtualAgentsScreen: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {[1, 2, 3, 4, 5].map((i) => (
-                                                    <tr key={i} className="hover:bg-slate-50">
-                                                        <td className="p-3 text-slate-500 whitespace-nowrap">22 Out, 14:{30 + i}</td>
-                                                        <td className="p-3 font-mono text-xs text-slate-400">user_{8392 + i}</td>
-                                                        <td className="p-3 max-w-xs truncate">Onde está a chave do cofre?</td>
-                                                        <td className="p-3 max-w-xs truncate text-slate-600">Você olhou debaixo do tapete da entrada?</td>
-                                                        <td className="p-3 text-slate-400">145</td>
-                                                    </tr>
-                                                ))}
+                                                {/* Logs would go here */}
+                                                <tr>
+                                                    <td colSpan={5} className="p-8 text-center text-slate-400">
+                                                        Nenhum registro de interação encontrado.
+                                                    </td>
+                                                </tr>
                                             </tbody>
                                         </table>
                                     </Card>
