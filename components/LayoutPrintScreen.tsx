@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     ArrowLeft,
     Printer,
@@ -11,119 +11,163 @@ import {
     CheckCircle2,
     AlertCircle,
     Eye,
-    Download,
     ChevronDown,
-    Briefcase
+    Plus,
+    Trash2,
+    Loader2
 } from 'lucide-react';
 import Button from './ui/Button';
 import Card from './ui/Card';
-import Badge from './ui/Badge';
+import { supabase } from '../lib/supabase';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface LayoutPrintScreenProps {
     onBack: () => void;
 }
 
-// Mock Data Types
 type ModuleType = 'envelope' | 'document' | 'map' | 'lab';
 
 interface KitModule {
     id: string;
     type: ModuleType;
     title: string;
-    status: 'ready' | 'incomplete';
     description: string;
+    content: string;
+    status: 'draft' | 'ready' | 'incomplete';
+    case_id: string;
 }
 
-interface CaseOption {
+interface Case {
     id: string;
     title: string;
-    kitId: string;
 }
 
 const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
 
-    // Available Cases Mock
-    const availableCases: CaseOption[] = [
-        { id: 'case-1', title: 'O Enigma do Relógio', kitId: '#204' },
-        { id: 'case-2', title: 'Operação Coldbridge', kitId: '#205' },
-        { id: 'case-3', title: 'O Último Suspiro', kitId: '#206' },
-    ];
-
-    const [selectedCaseId, setSelectedCaseId] = useState<string>(availableCases[0].id);
-
-    // Initial Modules (Default for Case 1)
+    // State
+    const [cases, setCases] = useState<Case[]>([]);
+    const [selectedCaseId, setSelectedCaseId] = useState<string>('');
     const [modules, setModules] = useState<KitModule[]>([]);
-
-    // Effect to switch modules when case changes
-    useEffect(() => {
-        // Simulate fetching modules for different cases
-        let newModules: KitModule[] = [];
-        if (selectedCaseId === 'case-1') {
-            newModules = [
-                { id: '1', type: 'envelope', title: 'Envelope A: Cena do Crime', status: 'ready', description: 'Contém evidências iniciais e relatório policial.' },
-                { id: '2', type: 'document', title: 'Relatório Policial #890', status: 'ready', description: 'Documento A4, papel timbrado Scotland Yard.' },
-                { id: '3', type: 'document', title: 'Depoimento: A. Pendelton', status: 'incomplete', description: 'Falta revisar ortografia no 2º parágrafo.' },
-                { id: '4', type: 'map', title: 'Mapa: Londres Vitoriana', status: 'ready', description: 'Mapa A3 dobrável com marcações em vermelho.' },
-                { id: '5', type: 'lab', title: 'Laudo Toxicológico', status: 'ready', description: 'Cartão de análise química com revelação UV.' },
-                { id: '6', type: 'envelope', title: 'Envelope B: Solução', status: 'ready', description: 'Envelope lacrado com a resolução do caso.' },
-            ];
-        } else if (selectedCaseId === 'case-2') {
-            newModules = [
-                { id: '10', type: 'envelope', title: 'Dossiê Confidencial', status: 'ready', description: 'Pasta parda com carimbo TOP SECRET.' },
-                { id: '11', type: 'document', title: 'Interceptação de Rádio', status: 'ready', description: 'Transcrição de código morse.' },
-                { id: '12', type: 'map', title: 'Planta Baixa: Embaixada', status: 'incomplete', description: 'Falta rota de fuga.' },
-            ];
-        } else {
-            newModules = [
-                { id: '20', type: 'document', title: 'Diário do Capitão', status: 'ready', description: 'Páginas envelhecidas com manchas de água.' },
-                { id: '21', type: 'lab', title: 'Amostra de Ectoplasma', status: 'ready', description: 'Frasco simulado em papel vegetal.' },
-            ];
-        }
-        setModules(newModules);
-        setSelectedId(newModules[0]?.id || '');
-    }, [selectedCaseId]);
-
-
-    const [selectedId, setSelectedId] = useState<string>('1');
+    const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
-    const selectedModule = modules.find(m => m.id === selectedId);
-    const currentCase = availableCases.find(c => c.id === selectedCaseId);
+    // Create Modal
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newModuleTitle, setNewModuleTitle] = useState('');
+    const [newModuleType, setNewModuleType] = useState<ModuleType>('document');
 
-    const handleSave = () => {
-        setIsSaving(true);
-        setTimeout(() => {
-            setIsSaving(false);
-            showNotification('Layout do kit salvo com sucesso!', 'success');
-        }, 1500);
-    };
+    const printRef = useRef<HTMLDivElement>(null);
 
-    const handleExport = () => {
-        setIsExporting(true);
-        setTimeout(() => {
-            setIsExporting(false);
-            showNotification('PDF Final gerado e enviado para download.', 'success');
-        }, 2500);
-    };
+    // Fetch Cases
+    useEffect(() => {
+        const fetchCases = async () => {
+            const { data, error } = await supabase.from('cases').select('id, title');
+            if (data) {
+                setCases(data);
+                if (data.length > 0) setSelectedCaseId(data[0].id);
+            }
+        };
+        fetchCases();
+    }, []);
+
+    // Fetch Modules when Case Changes
+    useEffect(() => {
+        if (!selectedCaseId) return;
+        const fetchModules = async () => {
+            setLoading(true);
+            const { data, error } = await supabase
+                .from('modules')
+                .select('*')
+                .eq('case_id', selectedCaseId)
+                .order('created_at', { ascending: true }); // Simple ordering by creation for now
+
+            if (data) {
+                setModules(data);
+                if (data.length > 0) setSelectedModuleId(data[0].id);
+                else setSelectedModuleId(null);
+            }
+            setLoading(false);
+        };
+        fetchModules();
+    }, [selectedCaseId]);
 
     const showNotification = (message: string, type: 'success' | 'error') => {
         setNotification({ message, type });
         setTimeout(() => setNotification(null), 4000);
     };
 
-    // Move item (Simulated Drag and Drop)
-    const moveItem = (index: number, direction: 'up' | 'down') => {
-        const newModules = [...modules];
-        if (direction === 'up' && index > 0) {
-            [newModules[index], newModules[index - 1]] = [newModules[index - 1], newModules[index]];
-        } else if (direction === 'down' && index < newModules.length - 1) {
-            [newModules[index], newModules[index + 1]] = [newModules[index + 1], newModules[index]];
+    const handleCreateModule = async () => {
+        if (!newModuleTitle.trim()) return;
+
+        const { data, error } = await supabase
+            .from('modules')
+            .insert({
+                case_id: selectedCaseId,
+                title: newModuleTitle,
+                type: newModuleType,
+                description: 'Novo módulo criado.',
+                content: 'Conteúdo inicial...',
+                status: 'draft'
+            })
+            .select()
+            .single();
+
+        if (data) {
+            setModules([...modules, data]);
+            setSelectedModuleId(data.id);
+            setShowCreateModal(false);
+            setNewModuleTitle('');
+            showNotification('Módulo criado com sucesso!', 'success');
+        } else {
+            showNotification('Erro ao criar módulo.', 'error');
         }
-        setModules(newModules);
     };
 
+    const handleDeleteModule = async (id: string) => {
+        if (!confirm('Tem certeza que deseja excluir este módulo?')) return;
+        const { error } = await supabase.from('modules').delete().eq('id', id);
+        if (!error) {
+            setModules(modules.filter(m => m.id !== id));
+            if (selectedModuleId === id) setSelectedModuleId(null);
+            showNotification('Módulo excluído.', 'success');
+        }
+    };
+
+    const handleSave = async () => {
+        // In a real app we'd save content editing here. 
+        // For now we just verify connection.
+        showNotification('Layout salvo (Simulação).', 'success');
+    };
+
+    const handleExportPDF = async () => {
+        if (!selectedModuleId || !printRef.current) return;
+        setIsExporting(true);
+        try {
+            const canvas = await html2canvas(printRef.current, { scale: 2 });
+            const imgData = canvas.toDataURL('image/png');
+
+            // A4 Size
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`modulo-${selectedModuleId}.pdf`);
+
+            showNotification('PDF gerado com sucesso!', 'success');
+        } catch (error) {
+            console.error(error);
+            showNotification('Erro ao gerar PDF.', 'error');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    // UI Helpers
     const getIcon = (type: ModuleType) => {
         switch (type) {
             case 'envelope': return <Mail size={18} />;
@@ -133,8 +177,46 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
         }
     };
 
+    const selectedModule = modules.find(m => m.id === selectedModuleId);
+
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+            {/* Notification Toast */}
+            {notification && (
+                <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center animate-fadeIn ${notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+                    {notification.type === 'success' ? <CheckCircle2 size={20} className="mr-2" /> : <AlertCircle size={20} className="mr-2" />}
+                    {notification.message}
+                </div>
+            )}
+
+            {/* Create Modal */}
+            {showCreateModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+                        <h3 className="text-lg font-bold mb-4">Adicionar Módulo</h3>
+                        <input
+                            className="w-full border p-2 rounded mb-4"
+                            placeholder="Título do Módulo"
+                            value={newModuleTitle}
+                            onChange={e => setNewModuleTitle(e.target.value)}
+                        />
+                        <select
+                            className="w-full border p-2 rounded mb-6"
+                            value={newModuleType}
+                            onChange={e => setNewModuleType(e.target.value as ModuleType)}
+                        >
+                            <option value="document">Documento A4</option>
+                            <option value="envelope">Envelope</option>
+                            <option value="map">Mapa</option>
+                            <option value="lab">Laudo Laboratorial</option>
+                        </select>
+                        <div className="flex justify-end space-x-2">
+                            <Button variant="secondary" onClick={() => setShowCreateModal(false)}>Cancelar</Button>
+                            <Button onClick={handleCreateModule}>Criar</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Header */}
             <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-20">
@@ -161,49 +243,28 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                                     value={selectedCaseId}
                                     onChange={(e) => setSelectedCaseId(e.target.value)}
                                 >
-                                    {availableCases.map(c => (
+                                    {cases.map(c => (
                                         <option key={c.id} value={c.id}>{c.title}</option>
                                     ))}
                                 </select>
                                 <ChevronDown size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                             </div>
-                            <span className="bg-slate-100 text-slate-500 text-xs px-2 py-0.5 rounded font-mono">
-                                Kit {currentCase?.kitId}
-                            </span>
                         </div>
                     </div>
                 </div>
 
                 <div className="flex items-center space-x-3">
                     <Button
-                        variant="secondary"
-                        onClick={handleSave}
-                        isLoading={isSaving}
-                        className="!w-auto"
-                    >
-                        <Save size={18} className="mr-2" />
-                        <span className="hidden sm:inline">Salvar Layout</span>
-                        <span className="sm:hidden">Salvar</span>
-                    </Button>
-                    <Button
-                        onClick={handleExport}
+                        onClick={handleExportPDF}
                         isLoading={isExporting}
                         className="!w-auto bg-brand-600 hover:bg-brand-700"
+                        disabled={!selectedModule}
                     >
                         <Printer size={18} className="mr-2" />
-                        <span className="hidden sm:inline">Gerar PDF Final</span>
-                        <span className="sm:hidden">PDF</span>
+                        <span className="hidden sm:inline">Gerar PDF</span>
                     </Button>
                 </div>
             </header>
-
-            {/* Notification Toast */}
-            {notification && (
-                <div className={`fixed top-20 right-6 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center animate-fadeIn ${notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
-                    {notification.type === 'success' ? <CheckCircle2 size={20} className="mr-2" /> : <AlertCircle size={20} className="mr-2" />}
-                    {notification.message}
-                </div>
-            )}
 
             <main className="flex-1 p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-4rem)]">
 
@@ -219,37 +280,35 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                            {loading && <div className="text-center p-4"><Loader2 className="animate-spin mx-auto" /></div>}
+                            {!loading && modules.length === 0 && (
+                                <div className="text-center p-8 text-slate-400 text-sm">Nenhum módulo encontrado.</div>
+                            )}
                             {modules.map((module, index) => (
                                 <div
                                     key={module.id}
-                                    onClick={() => setSelectedId(module.id)}
+                                    onClick={() => setSelectedModuleId(module.id)}
                                     className={`
                             group flex items-start p-3 rounded-lg border cursor-pointer transition-all duration-200 relative
-                            ${selectedId === module.id
+                            ${selectedModuleId === module.id
                                             ? 'bg-brand-50 border-brand-200 shadow-sm ring-1 ring-brand-200'
                                             : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'}
                         `}
                                 >
-                                    {/* Drag Handle (Visual) */}
-                                    <div className="flex flex-col items-center justify-center mr-3 mt-1 text-slate-300 group-hover:text-slate-400">
-                                        <button onClick={(e) => { e.stopPropagation(); moveItem(index, 'up'); }} className="hover:text-slate-600 p-0.5"><div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-b-[6px] border-b-current"></div></button>
-                                        <GripVertical size={14} className="my-0.5" />
-                                        <button onClick={(e) => { e.stopPropagation(); moveItem(index, 'down'); }} className="hover:text-slate-600 p-0.5"><div className="w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[6px] border-t-current"></div></button>
-                                    </div>
-
                                     <div className="flex-1 min-w-0">
                                         <div className="flex justify-between items-start mb-1">
-                                            <span className={`flex items-center text-sm font-medium ${selectedId === module.id ? 'text-brand-700' : 'text-slate-700'}`}>
-                                                <span className={`mr-2 p-1.5 rounded-md ${selectedId === module.id ? 'bg-brand-100' : 'bg-slate-100'}`}>
+                                            <span className={`flex items-center text-sm font-medium ${selectedModuleId === module.id ? 'text-brand-700' : 'text-slate-700'}`}>
+                                                <span className={`mr-2 p-1.5 rounded-md ${selectedModuleId === module.id ? 'bg-brand-100' : 'bg-slate-100'}`}>
                                                     {getIcon(module.type)}
                                                 </span>
                                                 {module.title}
                                             </span>
-                                            {module.status === 'ready' ? (
-                                                <div className="text-emerald-500"><CheckCircle2 size={16} /></div>
-                                            ) : (
-                                                <div className="text-amber-500"><AlertCircle size={16} /></div>
-                                            )}
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteModule(module.id); }}
+                                                className="text-slate-300 hover:text-red-500 transition-colors"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
                                         </div>
                                         <p className="text-xs text-slate-500 ml-9 truncate">{module.description}</p>
                                     </div>
@@ -258,8 +317,11 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                         </div>
 
                         <div className="p-4 border-t border-slate-100 bg-slate-50 text-center">
-                            <button className="text-xs text-brand-600 hover:text-brand-800 font-medium flex items-center justify-center w-full">
-                                + Adicionar Novo Módulo
+                            <button
+                                onClick={() => setShowCreateModal(true)}
+                                className="text-xs text-brand-600 hover:text-brand-800 font-medium flex items-center justify-center w-full"
+                            >
+                                <Plus size={14} className="mr-1" /> Adicionar Novo Módulo
                             </button>
                         </div>
                     </div>
@@ -277,135 +339,67 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                                     Visualização de Impressão
                                 </span>
                             </div>
-                            <div className="bg-white/90 backdrop-blur-sm border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm pointer-events-auto">
-                                <span className="text-xs text-slate-500">Formato: </span>
-                                <span className="text-xs font-mono font-medium text-slate-800">
-                                    {selectedModule?.type === 'envelope' ? 'C5 (162x229mm)' : 'A4 (210x297mm)'}
-                                </span>
-                            </div>
                         </div>
 
-                        {/* Simulated Paper Canvas */}
-                        <div className="flex-1 overflow-auto flex items-center justify-center p-12 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+                        {/* Simulated Paper Canvas for PDF Generation */}
+                        <div className="flex-1 overflow-auto flex items-center justify-center p-12 bg-slate-300">
                             {selectedModule ? (
                                 <div
+                                    ref={printRef}
                                     className={`
-                                relative shadow-2xl transition-all duration-500 transform
-                                ${selectedModule.type === 'envelope' ? 'w-[600px] h-[400px] bg-[#dcbfa3]' : 'w-[500px] h-[700px] bg-white'}
-                            `}
+                                relative shadow-2xl bg-white
+                                ${selectedModule.type === 'envelope' ? 'w-[600px] h-[400px] bg-[#dcbfa3]' : 'w-[595px] h-[842px]'} 
+                            `} // w-[595px] h-[842px] simulates A4 roughly at 72dpi, good enough for html2canvas
                                 >
-                                    {/* Content Simulation */}
                                     <div className="w-full h-full p-12 flex flex-col relative">
+                                        <div className="absolute inset-0 pointer-events-none opacity-5 border-[1px] border-slate-900"></div>
 
-                                        {/* Texture Overlay */}
-                                        <div className="absolute inset-0 pointer-events-none opacity-10 bg-[url('https://www.transparenttextures.com/patterns/aged-paper.png')]"></div>
-
-                                        {selectedModule.type === 'envelope' && (
-                                            <>
-                                                <div className="absolute top-8 right-8 w-24 h-28 border-2 border-dashed border-red-800/30 flex items-center justify-center rotate-3">
-                                                    <span className="text-red-900/40 text-xs font-bold uppercase text-center">Local<br />Selo</span>
+                                        {/* Dynamic Content based on Type */}
+                                        {selectedModule.type === 'document' && (
+                                            <div className="font-serif text-slate-900">
+                                                <div className="border-b-2 border-slate-800 pb-4 mb-8 flex justify-between items-end">
+                                                    <h1 className="text-3xl font-bold">CONFIDENCIAL</h1>
+                                                    <span className="font-mono text-sm">REF: {selectedModule.id.substring(0, 6)}</span>
                                                 </div>
-                                                <div className="absolute bottom-12 left-12">
-                                                    <div className="text-red-800 font-serif text-2xl font-bold uppercase tracking-widest border-4 border-red-800 p-2 rotate-[-5deg] inline-block opacity-80">
-                                                        Confidencial
-                                                    </div>
+                                                <h2 className="text-xl font-bold mb-4">{selectedModule.title}</h2>
+                                                <p className="text-justify leading-relaxed whitespace-pre-wrap">{selectedModule.content}</p>
+                                                <div className="mt-12 pt-8 border-t border-slate-300 text-center text-xs text-slate-500">
+                                                    Documento gerado pelo Sistema de Jogos Investigativos
                                                 </div>
-                                                <div className="flex-1 flex items-center justify-center">
-                                                    <div className="text-center font-serif text-slate-800">
-                                                        <p className="text-lg italic mb-2">Para o detetive responsável</p>
-                                                        <h2 className="text-3xl font-bold uppercase tracking-widest">{selectedModule.title}</h2>
-                                                        <p className="text-sm mt-4 text-slate-600">Londres, 1890</p>
-                                                    </div>
-                                                </div>
-                                            </>
+                                            </div>
                                         )}
 
-                                        {selectedModule.type === 'document' && (
-                                            <>
-                                                <div className="flex items-center justify-between border-b-2 border-slate-800 pb-4 mb-8">
-                                                    <div className="flex items-center space-x-2">
-                                                        <div className="h-8 w-8 bg-slate-900 rounded-full"></div>
-                                                        <span className="font-bold text-lg font-serif">Scotland Yard</span>
-                                                    </div>
-                                                    <span className="font-mono text-sm">REF: #890-B</span>
+                                        {selectedModule.type === 'envelope' && (
+                                            <div className="h-full flex flex-col items-center justify-center border-4 border-double border-red-900/20 m-4">
+                                                <div className="text-center">
+                                                    <h2 className="text-4xl font-serif font-bold text-slate-800 mb-2">{selectedModule.title}</h2>
+                                                    <p className="text-red-800 font-bold uppercase tracking-widest border-2 border-red-800 px-4 py-1 inline-block mt-4">Top Secret</p>
                                                 </div>
-                                                <div className="font-serif text-slate-800 space-y-4 leading-relaxed text-justify text-sm">
-                                                    <p><strong>Data:</strong> 22 de Outubro de 1890</p>
-                                                    <p><strong>Assunto:</strong> {selectedModule.title}</p>
-                                                    <div className="h-px bg-slate-300 w-1/2 my-4"></div>
-                                                    <p>
-                                                        O oficial chegou ao local às 03:00 da manhã. A neblina estava densa.
-                                                        Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-                                                        Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-                                                    </p>
-                                                    <p>
-                                                        Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-                                                        Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
-                                                    </p>
-                                                    {selectedModule.status === 'incomplete' && (
-                                                        <div className="bg-amber-100 border border-amber-300 p-2 text-amber-800 text-xs mt-4 text-center">
-                                                            [ Conteúdo ainda em revisão ]
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </>
+                                            </div>
                                         )}
 
                                         {selectedModule.type === 'map' && (
-                                            <div className="w-full h-full border-4 border-slate-800 p-2">
-                                                <div className="w-full h-full bg-slate-100 flex items-center justify-center border border-slate-300 relative overflow-hidden">
-                                                    {/* Abstract Map Grid */}
-                                                    <div className="absolute inset-0 grid grid-cols-6 grid-rows-6">
-                                                        {[...Array(36)].map((_, i) => (
-                                                            <div key={i} className="border border-slate-200/50"></div>
-                                                        ))}
-                                                    </div>
-                                                    <span className="font-serif text-4xl text-slate-300 font-bold rotate-[-15deg] z-10">MAPA DA CIDADE</span>
-                                                    <div className="absolute top-1/2 left-1/2 w-4 h-4 bg-red-600 rounded-full border-2 border-white shadow-md z-20"></div>
-                                                    <div className="absolute top-1/3 left-1/4 w-3 h-3 bg-slate-800 rounded-full z-20"></div>
-                                                </div>
+                                            <div className="h-full bg-slate-100 flex items-center justify-center border-2 border-slate-900">
+                                                <span className="text-4xl font-serif font-bold text-slate-400 rotate-[-45deg]">MAPA: {selectedModule.title}</span>
                                             </div>
                                         )}
 
                                         {selectedModule.type === 'lab' && (
-                                            <div className="w-full h-full bg-slate-900 text-green-400 font-mono p-4 flex flex-col">
-                                                <div className="border border-green-500/30 p-2 mb-4 text-center text-xs uppercase tracking-widest">
-                                                    Análise Forense
-                                                </div>
-                                                <div className="space-y-2 text-xs">
-                                                    <div className="flex justify-between"><span>Amostra:</span> <span>X-99</span></div>
-                                                    <div className="flex justify-between"><span>Toxina:</span> <span>Detectada</span></div>
-                                                    <div className="h-px bg-green-500/30 my-2"></div>
-                                                    <p className="opacity-70">&gt; Iniciando sequência de análise...</p>
-                                                    <p className="opacity-70">&gt; Composto Arsênico encontrado.</p>
-                                                </div>
-                                                <div className="mt-auto text-center border-t border-green-500/30 pt-2">
-                                                    <FlaskConical className="mx-auto mb-1 opacity-50" size={24} />
-                                                    <span className="text-[10px] uppercase">Confidencial</span>
-                                                </div>
+                                            <div className="h-full bg-slate-900 text-green-500 font-mono p-8">
+                                                <div className="border border-green-500 p-2 text-center mb-8">ANÁLISE FORENSE</div>
+                                                <p>&gt; Amostra: {selectedModule.title}</p>
+                                                <p>&gt; Status: {selectedModule.status}</p>
+                                                <p className="mt-4">&gt; Resultado: POSITIVO PARA TOXINA.</p>
                                             </div>
                                         )}
+
                                     </div>
                                 </div>
                             ) : (
-                                <div className="text-slate-400 flex flex-col items-center">
-                                    <Printer size={48} className="mb-4 opacity-50" />
-                                    <p>Selecione um módulo para visualizar</p>
-                                </div>
+                                <div className="text-slate-500">Selecione um módulo para visualizar.</div>
                             )}
                         </div>
                     </div>
-
-                    {/* Validation Footer for Document */}
-                    {selectedModule?.status === 'incomplete' && (
-                        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start">
-                            <AlertCircle className="text-amber-600 mt-0.5 mr-3 flex-shrink-0" size={18} />
-                            <div>
-                                <h4 className="text-sm font-semibold text-amber-800">Atenção Necessária</h4>
-                                <p className="text-xs text-amber-700 mt-0.5">Este documento contém campos não preenchidos ou marcados para revisão. A exportação final pode conter placeholders.</p>
-                            </div>
-                        </div>
-                    )}
                 </section>
             </main>
         </div>
