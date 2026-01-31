@@ -15,13 +15,15 @@ import {
     Plus,
     Trash2,
     Loader2,
-    Settings
+    Settings,
+    FileSearch
 } from 'lucide-react';
 import Button from './ui/Button';
 import Card from './ui/Card';
 import { supabase } from '../lib/supabase';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { smartExtractPDF, performOCR } from '../lib/pdfExtractor';
 
 interface LayoutPrintScreenProps {
     onBack: () => void;
@@ -69,6 +71,10 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
     const [customTitle, setCustomTitle] = useState('');
     const [customSubtitle, setCustomSubtitle] = useState('');
     const [showEditPanel, setShowEditPanel] = useState(true);
+
+    // OCR/Text Extraction State
+    const [isExtracting, setIsExtracting] = useState(false);
+    const [extractionProgress, setExtractionProgress] = useState(0);
 
     // Create Modal
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -239,16 +245,38 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
     };
 
     const handleExportPDF = async () => {
-        if (!selectedModuleId || !printRef.current) return;
+        if (!selectedModuleId || !printRef.current) {
+            showNotification('Nenhum módulo selecionado para exportar.', 'error');
+            return;
+        }
+
         setIsExporting(true);
+
         try {
+            // Wait a bit for images to load
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Check if element exists
+            if (!printRef.current) {
+                throw new Error('Elemento de impressão não encontrado');
+            }
+
+            console.log('Gerando PDF do elemento:', printRef.current);
+
             const canvas = await html2canvas(printRef.current, {
                 scale: 2,
                 useCORS: true,
                 allowTaint: true,
-                logging: false,
-                backgroundColor: '#ffffff'
+                logging: true, // Enable logging for debugging
+                backgroundColor: '#ffffff',
+                imageTimeout: 15000,
+                onclone: (clonedDoc) => {
+                    console.log('Documento clonado para PDF');
+                }
             });
+
+            console.log('Canvas gerado:', canvas.width, 'x', canvas.height);
+
             const imgData = canvas.toDataURL('image/png');
 
             // A4 Size
@@ -276,15 +304,69 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
             }
 
             // Use custom title for filename
-            const filename = customTitle ? `${customTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf` : 'documento.pdf';
+            const filename = customTitle
+                ? `${customTitle.replace(/[^a-z0-9\s]/gi, '_').toLowerCase().replace(/\s+/g, '_')}.pdf`
+                : 'documento.pdf';
+
+            console.log('Salvando PDF como:', filename);
             pdf.save(filename);
 
             showNotification('PDF gerado com sucesso!', 'success');
-        } catch (error) {
-            console.error('Erro ao gerar PDF:', error);
-            showNotification('Erro ao gerar PDF.', 'error');
+        } catch (error: any) {
+            console.error('Erro detalhado ao gerar PDF:', error);
+            showNotification(`Erro ao gerar PDF: ${error.message || 'Erro desconhecido'}`, 'error');
         } finally {
             setIsExporting(false);
+        }
+    };
+
+    const handleExtractText = async () => {
+        if (!moduleBody.startsWith('http')) {
+            showNotification('Nenhum arquivo para extrair texto.', 'error');
+            return;
+        }
+
+        setIsExtracting(true);
+        setExtractionProgress(0);
+
+        try {
+            // Fetch the file from URL
+            const response = await fetch(moduleBody);
+            const blob = await response.blob();
+
+            // Determine file type
+            const fileType = blob.type;
+            const fileName = moduleBody.split('/').pop() || 'file';
+            const file = new File([blob], fileName, { type: fileType });
+
+            let extractedText = '';
+
+            if (fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
+                // PDF file - use smart extraction
+                showNotification('Extraindo texto do PDF...', 'success');
+                extractedText = await smartExtractPDF(file, (progress) => {
+                    setExtractionProgress(progress);
+                });
+            } else if (fileType.startsWith('image/')) {
+                // Image file - use OCR
+                showNotification('Realizando OCR na imagem...', 'success');
+                extractedText = await performOCR(file, (progress) => {
+                    setExtractionProgress(progress);
+                });
+            } else {
+                throw new Error('Tipo de arquivo não suportado para extração de texto');
+            }
+
+            // Update the module body with extracted text
+            setModuleBody(extractedText);
+            showNotification('Texto extraído com sucesso! Agora você pode editar.', 'success');
+
+        } catch (error: any) {
+            console.error('Erro ao extrair texto:', error);
+            showNotification(`Erro ao extrair texto: ${error.message}`, 'error');
+        } finally {
+            setIsExtracting(false);
+            setExtractionProgress(0);
         }
     };
 
@@ -662,6 +744,40 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                                     {moduleBody}
                                                 </a>
                                             </div>
+
+                                            {/* Extract Text Button */}
+                                            <button
+                                                onClick={handleExtractText}
+                                                disabled={isExtracting}
+                                                className="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm shadow-sm"
+                                            >
+                                                {isExtracting ? (
+                                                    <>
+                                                        <Loader2 size={16} className="mr-2 animate-spin" />
+                                                        Extraindo... {extractionProgress}%
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <FileSearch size={16} className="mr-2" />
+                                                        Extrair Texto (OCR)
+                                                    </>
+                                                )}
+                                            </button>
+
+                                            {/* Progress Bar */}
+                                            {isExtracting && (
+                                                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                                                    <div
+                                                        className="bg-gradient-to-r from-purple-600 to-blue-600 h-full transition-all duration-300"
+                                                        style={{ width: `${extractionProgress}%` }}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            <p className="text-[10px] text-slate-500 italic">
+                                                💡 Clique para converter o PDF/imagem em texto editável
+                                            </p>
+
                                             <button
                                                 onClick={() => setModuleBody('')}
                                                 className="text-xs text-red-600 hover:text-red-700 underline"
