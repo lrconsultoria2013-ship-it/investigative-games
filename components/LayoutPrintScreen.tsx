@@ -14,7 +14,8 @@ import {
     ChevronDown,
     Plus,
     Trash2,
-    Loader2
+    Loader2,
+    Settings
 } from 'lucide-react';
 import Button from './ui/Button';
 import Card from './ui/Card';
@@ -55,6 +56,13 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
     const [isExporting, setIsExporting] = useState(false);
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
+    // Module Content State (parsed from JSON)
+    const [moduleBody, setModuleBody] = useState('');
+    const [moduleHeader, setModuleHeader] = useState('');
+    const [moduleFooter, setModuleFooter] = useState('');
+    const [moduleStamp, setModuleStamp] = useState<string>('none');
+    const [moduleSignature, setModuleSignature] = useState('');
+
     // Create Modal
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newModuleTitle, setNewModuleTitle] = useState('');
@@ -83,17 +91,47 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                 .from('modules')
                 .select('*')
                 .eq('case_id', selectedCaseId)
-                .order('created_at', { ascending: true }); // Simple ordering by creation for now
+                .order('created_at', { ascending: true });
 
             if (data) {
                 setModules(data);
-                if (data.length > 0) setSelectedModuleId(data[0].id);
-                else setSelectedModuleId(null);
+                if (data.length > 0) handleSelectModule(data[0]);
+                else {
+                    setSelectedModuleId(null);
+                    resetEditor();
+                }
             }
             setLoading(false);
         };
         fetchModules();
     }, [selectedCaseId]);
+
+    const resetEditor = () => {
+        setModuleBody('');
+        setModuleHeader('');
+        setModuleFooter('');
+        setModuleStamp('none');
+        setModuleSignature('');
+    };
+
+    const handleSelectModule = (module: KitModule) => {
+        setSelectedModuleId(module.id);
+        try {
+            const parsed = JSON.parse(module.content);
+            setModuleBody(parsed.body || module.content); // Fallback for legacy text
+            setModuleHeader(parsed.header || '');
+            setModuleFooter(parsed.footer || '');
+            setModuleStamp(parsed.stamp || 'none');
+            setModuleSignature(parsed.signature || '');
+        } catch (e) {
+            // Content is likely plain text
+            setModuleBody(module.content);
+            setModuleHeader('');
+            setModuleFooter('');
+            setModuleStamp('none');
+            setModuleSignature('');
+        }
+    };
 
     const showNotification = (message: string, type: 'success' | 'error') => {
         setNotification({ message, type });
@@ -103,14 +141,22 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
     const handleCreateModule = async () => {
         if (!newModuleTitle.trim()) return;
 
+        const initialContent = JSON.stringify({
+            body: 'Conteúdo inicial...',
+            header: '',
+            footer: '',
+            stamp: 'none',
+            signature: ''
+        });
+
         const { data, error } = await supabase
             .from('modules')
             .insert({
                 case_id: selectedCaseId,
                 title: newModuleTitle,
                 type: newModuleType,
-                description: 'Novo módulo criado.',
-                content: 'Conteúdo inicial...',
+                description: 'Novo módulo.',
+                content: initialContent,
                 status: 'draft'
             })
             .select()
@@ -118,7 +164,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
 
         if (data) {
             setModules([...modules, data]);
-            setSelectedModuleId(data.id);
+            handleSelectModule(data);
             setShowCreateModal(false);
             setNewModuleTitle('');
             showNotification('Módulo criado com sucesso!', 'success');
@@ -131,23 +177,51 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
         if (!confirm('Tem certeza que deseja excluir este módulo?')) return;
         const { error } = await supabase.from('modules').delete().eq('id', id);
         if (!error) {
-            setModules(modules.filter(m => m.id !== id));
-            if (selectedModuleId === id) setSelectedModuleId(null);
+            const newModules = modules.filter(m => m.id !== id);
+            setModules(newModules);
+            if (selectedModuleId === id) {
+                if (newModules.length > 0) handleSelectModule(newModules[0]);
+                else {
+                    setSelectedModuleId(null);
+                    resetEditor();
+                }
+            }
             showNotification('Módulo excluído.', 'success');
         }
     };
 
     const handleSave = async () => {
-        // In a real app we'd save content editing here. 
-        // For now we just verify connection.
-        showNotification('Layout salvo (Simulação).', 'success');
+        if (!selectedModuleId) return;
+        setIsSaving(true);
+
+        const contentJSON = JSON.stringify({
+            body: moduleBody,
+            header: moduleHeader,
+            footer: moduleFooter,
+            stamp: moduleStamp,
+            signature: moduleSignature
+        });
+
+        const { error } = await supabase
+            .from('modules')
+            .update({ content: contentJSON })
+            .eq('id', selectedModuleId);
+
+        if (!error) {
+            // Update local state
+            setModules(modules.map(m => m.id === selectedModuleId ? { ...m, content: contentJSON } : m));
+            showNotification('Alterações salvas.', 'success');
+        } else {
+            showNotification('Erro ao salvar.', 'error');
+        }
+        setIsSaving(false);
     };
 
     const handleExportPDF = async () => {
         if (!selectedModuleId || !printRef.current) return;
         setIsExporting(true);
         try {
-            const canvas = await html2canvas(printRef.current, { scale: 2 });
+            const canvas = await html2canvas(printRef.current, { scale: 2, useCORS: true });
             const imgData = canvas.toDataURL('image/png');
 
             // A4 Size
@@ -156,7 +230,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
             const pdfHeight = pdf.internal.pageSize.getHeight();
 
             pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`modulo-${selectedModuleId}.pdf`);
+            pdf.save(`modulo-${newModuleTitle || 'export'}.pdf`);
 
             showNotification('PDF gerado com sucesso!', 'success');
         } catch (error) {
@@ -255,6 +329,16 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
 
                 <div className="flex items-center space-x-3">
                     <Button
+                        onClick={handleSave}
+                        disabled={!selectedModule}
+                        isLoading={isSaving}
+                        variant="secondary"
+                        className="!w-auto"
+                    >
+                        <Save size={18} className="mr-2" />
+                        Salvar
+                    </Button>
+                    <Button
                         onClick={handleExportPDF}
                         isLoading={isExporting}
                         className="!w-auto bg-brand-600 hover:bg-brand-700"
@@ -266,141 +350,230 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                 </div>
             </header>
 
-            <main className="flex-1 p-6 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-4rem)]">
+            <main className="flex-1 p-6 max-w-[1600px] mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-4rem)]">
 
                 {/* Left Panel: Module Organizer */}
-                <section className="lg:col-span-4 flex flex-col h-full overflow-hidden">
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col h-full">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                            <h3 className="font-semibold text-slate-700 flex items-center">
-                                <GripVertical size={16} className="mr-2 text-slate-400" />
-                                Módulos do Kit
-                            </h3>
-                            <span className="text-xs text-slate-500 bg-slate-200 px-2 py-1 rounded-full">{modules.length} itens</span>
-                        </div>
+                <section className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col h-full lg:col-span-3 overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <h3 className="font-semibold text-slate-700 flex items-center">
+                            <GripVertical size={16} className="mr-2 text-slate-400" />
+                            Módulos
+                        </h3>
+                        <span className="text-xs text-slate-500 bg-slate-200 px-2 py-1 rounded-full">{modules.length}</span>
+                    </div>
 
-                        <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                            {loading && <div className="text-center p-4"><Loader2 className="animate-spin mx-auto" /></div>}
-                            {!loading && modules.length === 0 && (
-                                <div className="text-center p-8 text-slate-400 text-sm">Nenhum módulo encontrado.</div>
-                            )}
-                            {modules.map((module, index) => (
-                                <div
-                                    key={module.id}
-                                    onClick={() => setSelectedModuleId(module.id)}
-                                    className={`
-                            group flex items-start p-3 rounded-lg border cursor-pointer transition-all duration-200 relative
-                            ${selectedModuleId === module.id
-                                            ? 'bg-brand-50 border-brand-200 shadow-sm ring-1 ring-brand-200'
-                                            : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'}
-                        `}
-                                >
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <span className={`flex items-center text-sm font-medium ${selectedModuleId === module.id ? 'text-brand-700' : 'text-slate-700'}`}>
-                                                <span className={`mr-2 p-1.5 rounded-md ${selectedModuleId === module.id ? 'bg-brand-100' : 'bg-slate-100'}`}>
-                                                    {getIcon(module.type)}
-                                                </span>
-                                                {module.title}
-                                            </span>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteModule(module.id); }}
-                                                className="text-slate-300 hover:text-red-500 transition-colors"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                        <p className="text-xs text-slate-500 ml-9 truncate">{module.description}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 text-center">
-                            <button
-                                onClick={() => setShowCreateModal(true)}
-                                className="text-xs text-brand-600 hover:text-brand-800 font-medium flex items-center justify-center w-full"
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                        {loading && <div className="text-center p-4"><Loader2 className="animate-spin mx-auto text-brand-600" /></div>}
+                        {!loading && modules.length === 0 && (
+                            <div className="text-center p-8 text-slate-400 text-sm">Nenhum módulo encontrado.</div>
+                        )}
+                        {modules.map((module) => (
+                            <div
+                                key={module.id}
+                                onClick={() => handleSelectModule(module)}
+                                className={`
+                        group flex items-start p-3 rounded-lg border cursor-pointer transition-all duration-200 relative
+                        ${selectedModuleId === module.id
+                                        ? 'bg-brand-50 border-brand-200 shadow-sm ring-1 ring-brand-200'
+                                        : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'}
+                    `}
                             >
-                                <Plus size={14} className="mr-1" /> Adicionar Novo Módulo
-                            </button>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Right Panel: Interactive Preview */}
-                <section className="lg:col-span-8 flex flex-col h-full overflow-hidden">
-                    <div className="bg-slate-200/50 rounded-xl border border-slate-200 flex-1 flex flex-col relative overflow-hidden">
-
-                        {/* Preview Toolbar */}
-                        <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10 pointer-events-none">
-                            <div className="bg-white/90 backdrop-blur-sm border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm pointer-events-auto flex items-center space-x-2">
-                                <Eye size={16} className="text-slate-500" />
-                                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                                    Visualização de Impressão
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Simulated Paper Canvas for PDF Generation */}
-                        <div className="flex-1 overflow-auto flex items-center justify-center p-12 bg-slate-300">
-                            {selectedModule ? (
-                                <div
-                                    ref={printRef}
-                                    className={`
-                                relative shadow-2xl bg-white
-                                ${selectedModule.type === 'envelope' ? 'w-[600px] h-[400px] bg-[#dcbfa3]' : 'w-[595px] h-[842px]'} 
-                            `} // w-[595px] h-[842px] simulates A4 roughly at 72dpi, good enough for html2canvas
-                                >
-                                    <div className="w-full h-full p-12 flex flex-col relative">
-                                        <div className="absolute inset-0 pointer-events-none opacity-5 border-[1px] border-slate-900"></div>
-
-                                        {/* Dynamic Content based on Type */}
-                                        {selectedModule.type === 'document' && (
-                                            <div className="font-serif text-slate-900">
-                                                <div className="border-b-2 border-slate-800 pb-4 mb-8 flex justify-between items-end">
-                                                    <h1 className="text-3xl font-bold">CONFIDENCIAL</h1>
-                                                    <span className="font-mono text-sm">REF: {selectedModule.id.substring(0, 6)}</span>
-                                                </div>
-                                                <h2 className="text-xl font-bold mb-4">{selectedModule.title}</h2>
-                                                <p className="text-justify leading-relaxed whitespace-pre-wrap">{selectedModule.content}</p>
-                                                <div className="mt-12 pt-8 border-t border-slate-300 text-center text-xs text-slate-500">
-                                                    Documento gerado pelo Sistema de Jogos Investigativos
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {selectedModule.type === 'envelope' && (
-                                            <div className="h-full flex flex-col items-center justify-center border-4 border-double border-red-900/20 m-4">
-                                                <div className="text-center">
-                                                    <h2 className="text-4xl font-serif font-bold text-slate-800 mb-2">{selectedModule.title}</h2>
-                                                    <p className="text-red-800 font-bold uppercase tracking-widest border-2 border-red-800 px-4 py-1 inline-block mt-4">Top Secret</p>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {selectedModule.type === 'map' && (
-                                            <div className="h-full bg-slate-100 flex items-center justify-center border-2 border-slate-900">
-                                                <span className="text-4xl font-serif font-bold text-slate-400 rotate-[-45deg]">MAPA: {selectedModule.title}</span>
-                                            </div>
-                                        )}
-
-                                        {selectedModule.type === 'lab' && (
-                                            <div className="h-full bg-slate-900 text-green-500 font-mono p-8">
-                                                <div className="border border-green-500 p-2 text-center mb-8">ANÁLISE FORENSE</div>
-                                                <p>&gt; Amostra: {selectedModule.title}</p>
-                                                <p>&gt; Status: {selectedModule.status}</p>
-                                                <p className="mt-4">&gt; Resultado: POSITIVO PARA TOXINA.</p>
-                                            </div>
-                                        )}
-
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <span className={`flex items-center text-sm font-medium ${selectedModuleId === module.id ? 'text-brand-700' : 'text-slate-700'}`}>
+                                            <span className={`mr-2 p-1.5 rounded-md ${selectedModuleId === module.id ? 'bg-brand-100' : 'bg-slate-100'}`}>
+                                                {getIcon(module.type)}
+                                            </span>
+                                            {module.title}
+                                        </span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteModule(module.id); }}
+                                            className="text-slate-300 hover:text-red-500 transition-colors"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
                                     </div>
+                                    <p className="text-xs text-slate-500 ml-9 truncate">{module.type.toUpperCase()}</p>
                                 </div>
-                            ) : (
-                                <div className="text-slate-500">Selecione um módulo para visualizar.</div>
-                            )}
-                        </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="p-4 border-t border-slate-100 bg-slate-50 text-center">
+                        <button
+                            onClick={() => setShowCreateModal(true)}
+                            className="text-xs text-brand-600 hover:text-brand-800 font-medium flex items-center justify-center w-full bg-white border border-brand-200 py-2 rounded-lg hover:bg-brand-50 transition-colors"
+                        >
+                            <Plus size={14} className="mr-1" /> Novo Módulo
+                        </button>
                     </div>
                 </section>
+
+                {/* Center Panel: Interactive Preview */}
+                <section className="lg:col-span-6 flex flex-col h-full overflow-hidden bg-slate-200/50 rounded-xl border border-slate-200 relative">
+                    {/* Preview Toolbar */}
+                    <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10 pointer-events-none">
+                        <div className="bg-white/90 backdrop-blur-sm border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm pointer-events-auto flex items-center space-x-2">
+                            <Eye size={16} className="text-slate-500" />
+                            <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                                Visualização
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-auto flex items-center justify-center p-8 bg-slate-300">
+                        {selectedModule ? (
+                            <div
+                                ref={printRef}
+                                className={`include-in-pdf relative shadow-2xl bg-white transition-all duration-300 origin-top`}
+                                style={{
+                                    width: selectedModule.type === 'envelope' ? '600px' : '595px', // A4 width px at 72dpi
+                                    height: selectedModule.type === 'envelope' ? '400px' : '842px', // A4 height px
+                                    minWidth: selectedModule.type === 'envelope' ? '600px' : '595px',
+                                    minHeight: selectedModule.type === 'envelope' ? '400px' : '842px',
+                                }}
+                            >
+                                <div className="w-full h-full p-12 flex flex-col relative overflow-hidden">
+                                    {/* Custom Header */}
+                                    {moduleHeader && (
+                                        <div className="absolute top-8 left-12 right-12 text-center border-b-2 border-slate-800 pb-2 mb-4">
+                                            <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-600">{moduleHeader}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Stamps Layer */}
+                                    {moduleStamp !== 'none' && (
+                                        <div className="absolute top-20 right-10 rotate-[-15deg] pointer-events-none opacity-80 z-20">
+                                            <div className={`
+                                                border-4 px-4 py-2 text-2xl font-black uppercase tracking-widest
+                                                ${moduleStamp === 'confidential' ? 'border-red-600 text-red-600' : ''}
+                                                ${moduleStamp === 'top_secret' ? 'border-red-800 text-red-800' : ''}
+                                                ${moduleStamp === 'evidence' ? 'border-blue-600 text-blue-600' : ''}
+                                                ${moduleStamp === 'copy' ? 'border-slate-400 text-slate-400' : ''}
+                                            `}>
+                                                {moduleStamp.replace('_', ' ')}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Body Content */}
+                                    <div className="flex-1 mt-8">
+                                        {selectedModule.type === 'document' && (
+                                            <div className="prose prose-sm max-w-none font-serif text-slate-900">
+                                                <h1 className="uppercase text-3xl font-bold mb-6 text-slate-900">{selectedModule.title}</h1>
+                                                <div className="whitespace-pre-wrap leading-relaxed">
+                                                    {moduleBody}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {selectedModule.type === 'envelope' && (
+                                            <div className="h-full flex flex-col items-center justify-center border-4 border-double border-red-900/20 bg-[#fdfbf7]">
+                                                <h2 className="text-4xl font-serif font-bold text-slate-800 mb-2">{selectedModule.title}</h2>
+                                                <div className="w-32 h-1 bg-slate-800 my-4"></div>
+                                                <p className="font-mono text-sm text-slate-500">CONFIDENCIAL</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Signatures */}
+                                    {moduleSignature && (
+                                        <div className="mt-12 flex justify-end">
+                                            <div className="text-center w-48">
+                                                <div className="font-handwriting text-2xl text-blue-900 mb-1 transform -rotate-2">{moduleSignature}</div>
+                                                <div className="border-t border-slate-400 pt-1 text-xs text-slate-500 uppercase">Assinatura Responsável</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Custom Footer */}
+                                    {moduleFooter && (
+                                        <div className="absolute bottom-6 left-12 right-12 text-center border-t border-slate-300 pt-2">
+                                            <p className="text-[10px] text-slate-400">{moduleFooter}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center text-slate-400">
+                                <FileText size={48} className="mb-4 opacity-50" />
+                                <p>Selecione um módulo para editar</p>
+                            </div>
+                        )}
+                    </div>
+                </section>
+
+                {/* Right Panel: Customization Properties */}
+                <section className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col h-full lg:col-span-3 overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                        <h3 className="font-semibold text-slate-700 flex items-center">
+                            <Settings size={16} className="mr-2 text-slate-400" />
+                            Personalização
+                        </h3>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                        {selectedModule ? (
+                            <>
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Conteúdo Principal</label>
+                                    <textarea
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500 min-h-[150px]"
+                                        placeholder="Digite o conteúdo do documento..."
+                                        value={moduleBody}
+                                        onChange={(e) => setModuleBody(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Cabeçalho & Rodapé</label>
+                                    <input
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                                        placeholder="Texto do Cabeçalho"
+                                        value={moduleHeader}
+                                        onChange={(e) => setModuleHeader(e.target.value)}
+                                    />
+                                    <input
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                                        placeholder="Texto do Rodapé"
+                                        value={moduleFooter}
+                                        onChange={(e) => setModuleFooter(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Carimbos</label>
+                                    <select
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                                        value={moduleStamp}
+                                        onChange={(e) => setModuleStamp(e.target.value)}
+                                    >
+                                        <option value="none">Sem Carimbo</option>
+                                        <option value="confidential">CONFIDENCIAL</option>
+                                        <option value="top_secret">TOP SECRET</option>
+                                        <option value="evidence">EVIDÊNCIA</option>
+                                        <option value="copy">CÓPIA</option>
+                                    </select>
+                                </div>
+
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Assinatura</label>
+                                    <input
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                                        placeholder="Nome da Assinatura"
+                                        value={moduleSignature}
+                                        onChange={(e) => setModuleSignature(e.target.value)}
+                                    />
+                                    <p className="text-[10px] text-slate-400">A assinatura aparecerá no final do documento.</p>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="text-center text-slate-400 py-8">
+                                Selecione um módulo para ver as opções.
+                            </div>
+                        )}
+                    </div>
+                </section>
+
             </main>
         </div>
     );
