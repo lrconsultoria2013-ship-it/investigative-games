@@ -102,6 +102,7 @@ const VirtualAgentsScreen: React.FC = () => {
     const [testMessage, setTestMessage] = useState('');
     const [isSendingMessage, setIsSendingMessage] = useState(false);
     const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'agent' | 'model', text: string }[]>([]);
+    const [tempApiKey, setTempApiKey] = useState('');
 
     const selectedAgent = agents.find(a => a.id === selectedAgentId);
 
@@ -113,6 +114,25 @@ const VirtualAgentsScreen: React.FC = () => {
     const handleUpdateAgentState = (field: keyof Agent, value: any) => {
         if (!selectedAgentId) return;
         setAgents(prev => prev.map(a => a.id === selectedAgentId ? { ...a, [field]: value } : a));
+    };
+
+    const handleUpdateConfig = (key: string, value: any) => {
+        if (!selectedAgentId) return;
+        const currentAgent = agents.find(a => a.id === selectedAgentId);
+        if (!currentAgent) return;
+
+        const newConfig = { ...currentAgent.config, [key]: value };
+        handleUpdateAgentState('config', newConfig);
+    };
+
+    const handleUpdateHint = (level: number, text: string) => {
+        if (!selectedAgentId) return;
+        const currentAgent = agents.find(a => a.id === selectedAgentId);
+        if (!currentAgent) return;
+
+        const currentHints = currentAgent.config?.hints || {};
+        const newHints = { ...currentHints, [level]: text };
+        handleUpdateConfig('hints', newHints);
     };
 
     const handleSave = async () => {
@@ -127,7 +147,7 @@ const VirtualAgentsScreen: React.FC = () => {
                     status: selectedAgent.status,
                     model: selectedAgent.model,
                     system_prompt: selectedAgent.systemPrompt,
-                    // config: selectedAgent.config // If we had a JSON column
+                    config: selectedAgent.config,
                     last_interaction: new Date().toISOString(),
                 })
                 .eq('id', selectedAgent.id);
@@ -198,7 +218,7 @@ const VirtualAgentsScreen: React.FC = () => {
             }));
 
             // Get API Key from environment (must be prefixed with VITE_)
-            const apiKey = import.meta.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+            const apiKey = tempApiKey || import.meta.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
 
             if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY') {
                 throw new Error('Chave de API do Gemini não configurada.');
@@ -475,8 +495,18 @@ const VirtualAgentsScreen: React.FC = () => {
                                                     className="font-mono text-sm"
                                                 />
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <Input label="Limite de Mensagens (por jogador/dia)" type="number" defaultValue={50} />
-                                                    <Input label="Tempo de Delay (simulação de digitação em ms)" type="number" defaultValue={1500} />
+                                                    <Input
+                                                        label="Limite de Mensagens (por jogador/dia)"
+                                                        type="number"
+                                                        value={selectedAgent.config?.messageLimit || 50}
+                                                        onChange={(e) => handleUpdateConfig('messageLimit', parseInt(e.target.value))}
+                                                    />
+                                                    <Input
+                                                        label="Tempo de Delay (simulação de digitação em ms)"
+                                                        type="number"
+                                                        value={selectedAgent.config?.typingDelay || 1500}
+                                                        onChange={(e) => handleUpdateConfig('typingDelay', parseInt(e.target.value))}
+                                                    />
                                                 </div>
                                             </div>
                                         </Card>
@@ -507,6 +537,8 @@ const VirtualAgentsScreen: React.FC = () => {
                                                             placeholder={`Exemplo de dica nível ${level}...`}
                                                             className="text-sm"
                                                             rows={2}
+                                                            value={selectedAgent.config?.hints?.[level] || ''}
+                                                            onChange={(e) => handleUpdateHint(level, e.target.value)}
                                                         />
                                                     </div>
                                                 ))}
@@ -585,6 +617,15 @@ const VirtualAgentsScreen: React.FC = () => {
 
                                             {/* Input Area */}
                                             <div className="p-4 bg-white border-t border-slate-200">
+                                                <div className="mb-3">
+                                                    <input
+                                                        type="password"
+                                                        placeholder="Chave de API Temporária (Opcional - sobrescreve variável de ambiente)"
+                                                        className="w-full text-xs border border-slate-200 rounded px-2 py-1 text-slate-500 focus:outline-none focus:border-brand-400"
+                                                        value={tempApiKey}
+                                                        onChange={(e) => setTempApiKey(e.target.value)}
+                                                    />
+                                                </div>
                                                 <form onSubmit={handleSendMessage} className="flex space-x-2">
                                                     <input
                                                         className="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
