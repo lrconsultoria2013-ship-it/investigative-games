@@ -64,6 +64,12 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
     const [moduleStamp, setModuleStamp] = useState<string>('none');
     const [moduleSignature, setModuleSignature] = useState('');
 
+    // PDF Editor State
+    const [logoUrl, setLogoUrl] = useState('');
+    const [customTitle, setCustomTitle] = useState('');
+    const [customSubtitle, setCustomSubtitle] = useState('');
+    const [showEditPanel, setShowEditPanel] = useState(true);
+
     // Create Modal
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [newModuleTitle, setNewModuleTitle] = useState('');
@@ -121,6 +127,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
 
     const handleSelectModule = (module: KitModule) => {
         setSelectedModuleId(module.id);
+        setCustomTitle(module.title); // Set title from module
         try {
             const parsed = JSON.parse(module.content);
             setModuleBody(parsed.body || module.content); // Fallback for legacy text
@@ -128,6 +135,8 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
             setModuleFooter(parsed.footer || '');
             setModuleStamp(parsed.stamp || 'none');
             setModuleSignature(parsed.signature || '');
+            setLogoUrl(parsed.logo || '');
+            setCustomSubtitle(parsed.subtitle || '');
         } catch (e) {
             // Content is likely plain text
             setModuleBody(module.content);
@@ -135,6 +144,8 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
             setModuleFooter('');
             setModuleStamp('none');
             setModuleSignature('');
+            setLogoUrl('');
+            setCustomSubtitle('');
         }
     };
 
@@ -204,17 +215,22 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
             header: moduleHeader,
             footer: moduleFooter,
             stamp: moduleStamp,
-            signature: moduleSignature
+            signature: moduleSignature,
+            logo: logoUrl,
+            subtitle: customSubtitle
         });
 
         const { error } = await supabase
             .from('modules')
-            .update({ content: contentJSON })
+            .update({
+                content: contentJSON,
+                title: customTitle // Update title as well
+            })
             .eq('id', selectedModuleId);
 
         if (!error) {
             // Update local state
-            setModules(modules.map(m => m.id === selectedModuleId ? { ...m, content: contentJSON } : m));
+            setModules(modules.map(m => m.id === selectedModuleId ? { ...m, content: contentJSON, title: customTitle } : m));
             showNotification('Alterações salvas.', 'success');
         } else {
             showNotification('Erro ao salvar.', 'error');
@@ -226,7 +242,13 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
         if (!selectedModuleId || !printRef.current) return;
         setIsExporting(true);
         try {
-            const canvas = await html2canvas(printRef.current, { scale: 2, useCORS: true });
+            const canvas = await html2canvas(printRef.current, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            });
             const imgData = canvas.toDataURL('image/png');
 
             // A4 Size
@@ -234,12 +256,32 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
             const pdfWidth = pdf.internal.pageSize.getWidth();
             const pdfHeight = pdf.internal.pageSize.getHeight();
 
-            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`modulo-${newModuleTitle || 'export'}.pdf`);
+            // Calculate image dimensions to fit page
+            const imgWidth = pdfWidth;
+            const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+            let heightLeft = imgHeight;
+            let position = 0;
+
+            // Add first page
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pdfHeight;
+
+            // Add additional pages if content is longer than one page
+            while (heightLeft > 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pdfHeight;
+            }
+
+            // Use custom title for filename
+            const filename = customTitle ? `${customTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf` : 'documento.pdf';
+            pdf.save(filename);
 
             showNotification('PDF gerado com sucesso!', 'success');
         } catch (error) {
-            console.error(error);
+            console.error('Erro ao gerar PDF:', error);
             showNotification('Erro ao gerar PDF.', 'error');
         } finally {
             setIsExporting(false);
@@ -465,7 +507,20 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                     <div className="flex-1 mt-8">
                                         {selectedModule.type === 'document' && (
                                             <div className="prose prose-sm max-w-none font-serif text-slate-900">
-                                                <h1 className="uppercase text-3xl font-bold mb-6 text-slate-900">{selectedModule.title}</h1>
+                                                {/* Logo */}
+                                                {logoUrl && (
+                                                    <div className="text-center mb-6">
+                                                        <img src={logoUrl} alt="Logo" className="h-20 w-auto mx-auto object-contain" />
+                                                    </div>
+                                                )}
+
+                                                {/* Title */}
+                                                <h1 className="uppercase text-3xl font-bold mb-2 text-slate-900 text-center">{customTitle || selectedModule.title}</h1>
+
+                                                {/* Subtitle */}
+                                                {customSubtitle && (
+                                                    <p className="text-center text-slate-600 italic mb-6 text-lg">{customSubtitle}</p>
+                                                )}
                                                 {moduleBody.startsWith('http') ? (
                                                     moduleBody.match(/\.(jpeg|jpg|gif|png)$/i) ? (
                                                         <div className="text-center">
@@ -556,16 +611,75 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                     <div className="flex-1 overflow-y-auto p-4 space-y-6">
                         {selectedModule ? (
                             <>
+                                {/* Title & Subtitle */}
                                 <div className="space-y-3">
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Conteúdo Principal</label>
-                                    <textarea
-                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500 min-h-[150px]"
-                                        placeholder="Digite o conteúdo do documento..."
-                                        value={moduleBody}
-                                        onChange={(e) => setModuleBody(e.target.value)}
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Título do Documento</label>
+                                    <input
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500 font-medium"
+                                        placeholder="Título do documento"
+                                        value={customTitle}
+                                        onChange={(e) => setCustomTitle(e.target.value)}
                                     />
                                 </div>
 
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Subtítulo</label>
+                                    <input
+                                        className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                                        placeholder="Subtítulo (opcional)"
+                                        value={customSubtitle}
+                                        onChange={(e) => setCustomSubtitle(e.target.value)}
+                                    />
+                                </div>
+
+                                {/* Logo Upload */}
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Logo/Imagem do Cabeçalho</label>
+                                    <div className="space-y-2">
+                                        <input
+                                            className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                                            placeholder="URL da logo (https://...)"
+                                            value={logoUrl}
+                                            onChange={(e) => setLogoUrl(e.target.value)}
+                                        />
+                                        {logoUrl && (
+                                            <div className="border border-slate-200 rounded-lg p-2 bg-slate-50">
+                                                <img src={logoUrl} alt="Logo Preview" className="h-16 w-auto mx-auto object-contain" />
+                                            </div>
+                                        )}
+                                        <p className="text-[10px] text-slate-400">Cole a URL de uma imagem ou faça upload no Supabase Storage</p>
+                                    </div>
+                                </div>
+
+                                {/* Content Editor */}
+                                <div className="space-y-3">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Conteúdo Principal</label>
+                                    {moduleBody.startsWith('http') ? (
+                                        <div className="space-y-2">
+                                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                                <p className="text-xs text-blue-700 mb-2">📎 Arquivo anexado</p>
+                                                <a href={moduleBody} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:underline break-all">
+                                                    {moduleBody}
+                                                </a>
+                                            </div>
+                                            <button
+                                                onClick={() => setModuleBody('')}
+                                                className="text-xs text-red-600 hover:text-red-700 underline"
+                                            >
+                                                Remover arquivo e adicionar texto
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <textarea
+                                            className="w-full text-sm border-slate-200 rounded-lg focus:ring-brand-500 focus:border-brand-500 min-h-[200px] font-mono"
+                                            placeholder="Digite o conteúdo do documento..."
+                                            value={moduleBody}
+                                            onChange={(e) => setModuleBody(e.target.value)}
+                                        />
+                                    )}
+                                </div>
+
+                                {/* Header & Footer */}
                                 <div className="space-y-3">
                                     <label className="text-xs font-bold text-slate-500 uppercase">Cabeçalho & Rodapé</label>
                                     <input
@@ -582,6 +696,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                     />
                                 </div>
 
+                                {/* Stamps */}
                                 <div className="space-y-3">
                                     <label className="text-xs font-bold text-slate-500 uppercase">Carimbos</label>
                                     <select
@@ -597,6 +712,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                     </select>
                                 </div>
 
+                                {/* Signature */}
                                 <div className="space-y-3">
                                     <label className="text-xs font-bold text-slate-500 uppercase">Assinatura</label>
                                     <input
@@ -606,6 +722,15 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                         onChange={(e) => setModuleSignature(e.target.value)}
                                     />
                                     <p className="text-[10px] text-slate-400">A assinatura aparecerá no final do documento.</p>
+                                </div>
+
+                                {/* Save Reminder */}
+                                <div className="pt-4 border-t border-slate-200">
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                        <p className="text-xs text-amber-800">
+                                            💡 <strong>Lembre-se:</strong> Clique em "Salvar" no topo para guardar suas alterações!
+                                        </p>
+                                    </div>
                                 </div>
                             </>
                         ) : (
