@@ -662,11 +662,36 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                                                         <p className="text-xs text-slate-500 mt-1">{(selectedDoc.fileObj.size / 1024).toFixed(1)} KB</p>
                                                         <p className="text-xs text-emerald-600 mt-2 font-semibold">Pronto para upload</p>
                                                     </div>
-                                                ) : (selectedDoc.content && selectedDoc.content.startsWith('[Arquivo:') ? (
+                                                ) : (selectedDoc.content && (selectedDoc.content.startsWith('[Arquivo:') || selectedDoc.content.startsWith('http')) ? (
                                                     <div className="text-center">
-                                                        <FileText size={48} className="mx-auto text-brand-600 mb-4" />
-                                                        <p className="font-medium text-slate-800">{selectedDoc.content}</p>
-                                                        <p className="text-xs text-emerald-600 mt-2">Arquivo selecionado</p>
+                                                        {selectedDoc.content.startsWith('http') && selectedDoc.content.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                                                            <div className="mb-4 relative">
+                                                                <img
+                                                                    src={selectedDoc.content}
+                                                                    alt="Preview"
+                                                                    className="h-32 w-auto object-cover rounded shadow-sm"
+                                                                />
+                                                                <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors rounded" />
+                                                            </div>
+                                                        ) : (
+                                                            <FileText size={48} className="mx-auto text-brand-600 mb-4" />
+                                                        )}
+                                                        <p className="font-medium text-slate-800 max-w-xs truncate px-4">
+                                                            {selectedDoc.content.startsWith('http') ? 'Arquivo salvo na nuvem' : selectedDoc.content}
+                                                        </p>
+                                                        {selectedDoc.content.startsWith('http') && (
+                                                            <a
+                                                                href={selectedDoc.content}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="text-xs text-brand-600 hover:underline mt-1 block relative z-10"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            >
+                                                                Ver arquivo original
+                                                            </a>
+                                                        )}
+                                                        <p className="text-xs text-emerald-600 mt-2 font-semibold">Arquivo selecionado</p>
+                                                        <p className="text-[10px] text-slate-400 mt-4">Clique para substituir</p>
                                                     </div>
                                                 ) : (
                                                     <div className="text-center p-8">
