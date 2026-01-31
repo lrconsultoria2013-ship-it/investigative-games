@@ -117,15 +117,28 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                 if (modulesError) throw modulesError;
 
                 if (modulesData && modulesData.length > 0) {
-                    const mappedDocs: CaseDocument[] = modulesData.map((m: any) => ({
-                        id: m.id,
-                        title: m.title,
-                        summary: m.description || '',
-                        type: m.type === 'evidence' && m.content.startsWith('http') ? 'file' : 'text', // Simple detection
-                        content: m.content,
-                        category: m.type === 'evidence' ? 'evidence' : 'narrative', // Simplified mapping
-                        ageRating: '14' // Defaulting, as module age_rating is not stored
-                    }));
+                    const mappedDocs: CaseDocument[] = modulesData.map((m: any) => {
+                        let content = m.content;
+                        try {
+                            const parsed = JSON.parse(m.content);
+                            content = parsed.body || m.content;
+                        } catch (e) {
+                            // Content is plain text
+                        }
+
+                        // Determine type based on content URL (basic check)
+                        const isFile = (m.type === 'evidence' && (content.startsWith('http') || content.includes('[Arquivo:')));
+
+                        return {
+                            id: m.id,
+                            title: m.title,
+                            summary: m.description || '',
+                            type: isFile ? 'file' : 'text',
+                            content: content,
+                            category: m.type === 'evidence' ? 'evidence' : 'narrative',
+                            ageRating: '14'
+                        };
+                    });
                     setDocuments(mappedDocs);
                     setSelectedDocId(mappedDocs[0].id);
                 }
@@ -324,12 +337,21 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                     if (publicUrl) contentUrl = publicUrl;
                 }
 
+                // Prepare content as JSON for LayoutPrintScreen compatibility
+                const contentJSON = JSON.stringify({
+                    body: contentUrl,
+                    header: '',
+                    footer: '',
+                    stamp: 'none',
+                    signature: ''
+                });
+
                 const modulePayload = {
                     case_id: currentCaseId,
                     title: doc.title,
                     description: doc.summary,
                     type: doc.type === 'file' ? 'evidence' : 'narrative',
-                    content: contentUrl,
+                    content: contentJSON, // Save as JSON
                     status: 'draft',
                     // Safe cast or default for upsert
                 };

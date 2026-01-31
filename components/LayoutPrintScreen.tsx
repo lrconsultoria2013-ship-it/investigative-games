@@ -466,9 +466,24 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                         {selectedModule.type === 'document' && (
                                             <div className="prose prose-sm max-w-none font-serif text-slate-900">
                                                 <h1 className="uppercase text-3xl font-bold mb-6 text-slate-900">{selectedModule.title}</h1>
-                                                <div className="whitespace-pre-wrap leading-relaxed">
-                                                    {moduleBody}
-                                                </div>
+                                                {moduleBody.startsWith('http') ? (
+                                                    moduleBody.match(/\.(jpeg|jpg|gif|png)$/i) ? (
+                                                        <img src={moduleBody} alt="Evidência" className="max-w-full h-auto rounded border border-slate-200" />
+                                                    ) : (
+                                                        <div className="flex flex-col items-center justify-center p-8 border border-slate-200 bg-slate-50 rounded">
+                                                            <FileText size={48} className="text-slate-400 mb-2" />
+                                                            <p className="text-sm text-slate-500 mb-2">Arquivo Anexo</p>
+                                                            <a href={moduleBody} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline text-xs">
+                                                                Abrir arquivo original em nova aba
+                                                            </a>
+                                                            {/* Embed for PDF if possible, or just link */}
+                                                        </div>
+                                                    )
+                                                ) : (
+                                                    <div className="whitespace-pre-wrap leading-relaxed">
+                                                        {moduleBody}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                         {selectedModule.type === 'envelope' && (
