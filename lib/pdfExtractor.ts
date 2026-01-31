@@ -3,7 +3,7 @@ import { createWorker } from 'tesseract.js';
 
 // Configure PDF.js worker - use local worker file copied by Vite
 if (typeof window !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf-worker/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf-worker/pdf.worker.min.mjs';
 }
 
 /**
