@@ -393,7 +393,7 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                     case_id: currentCaseId,
                     title: doc.title,
                     description: doc.summary,
-                    type: doc.type === 'file' ? 'evidence' : 'narrative',
+                    type: 'document', // Use 'document' type for all modules
                     content: contentJSON, // Save as JSON
                     status: 'draft',
                 };
