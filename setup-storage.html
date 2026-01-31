@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurar Storage - Investigative Games</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border-left: 4px solid #3b82f6;
+        }
+
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px 5px 10px 0;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .sql-box {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            margin: 15px 0;
+            white-space: pre-wrap;
+        }
+
+        .step {
+            margin: 25px 0;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .step h3 {
+            margin-top: 0;
+            color: #334155;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🗄️ Configurar Storage do Supabase</h1>
+        <p>Esta ferramenta vai criar o bucket "case-files" para upload de arquivos.</p>
+
+        <div id="status"></div>
+
+        <div class="step">
+            <h3>Passo 1: Criar Bucket</h3>
+            <p>Clique no botão abaixo para criar o bucket automaticamente:</p>
+            <button id="createBucket" onclick="createBucket()">Criar Bucket "case-files"</button>
+            <div id="bucketStatus"></div>
+        </div>
+
+        <div class="step" id="sqlStep" style="display: none;">
+            <h3>Passo 2: Configurar Políticas RLS</h3>
+            <p>Copie o SQL abaixo e execute no Supabase Dashboard:</p>
+            <button onclick="copySQL()">📋 Copiar SQL</button>
+            <button onclick="openSQLEditor()">🔗 Abrir SQL Editor</button>
+            <div class="sql-box" id="sqlCode"></div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://wbvkjqfxdpbhpkjzqfqr.supabase.co';
+        const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndidmtqcWZ4ZHBiaHBranpxZnFyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczODI2NTY1NiwiZXhwIjoyMDUzODQxNjU2fQ.gXqKBLqBHDqJuiUWEAGkTHDDOhpkJqXPRWmXVUjdWgE';
+
+        const SQL_SCRIPT = `-- Políticas de Storage para case-files
+
+CREATE POLICY IF NOT EXISTS "Allow authenticated uploads"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'case-files');
+
+CREATE POLICY IF NOT EXISTS "Allow public downloads"
+ON storage.objects FOR SELECT TO public
+USING (bucket_id = 'case-files');
+
+CREATE POLICY IF NOT EXISTS "Allow authenticated updates"
+ON storage.objects FOR UPDATE TO authenticated
+USING (bucket_id = 'case-files');
+
+CREATE POLICY IF NOT EXISTS "Allow authenticated deletes"
+ON storage.objects FOR DELETE TO authenticated
+USING (bucket_id = 'case-files');`;
+
+        async function createBucket() {
+            const button = document.getElementById('createBucket');
+            const statusDiv = document.getElementById('bucketStatus');
+
+            button.disabled = true;
+            button.innerHTML = 'Criando... <span class="loading"></span>';
+            statusDiv.innerHTML = '<div class="status info">⏳ Criando bucket...</div>';
+
+            try {
+                const response = await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${SERVICE_KEY}`,
+                        'apikey': SERVICE_KEY
+                    },
+                    body: JSON.stringify({
+                        id: 'case-files',
+                        name: 'case-files',
+                        public: true,
+                        file_size_limit: 52428800,
+                        allowed_mime_types: [
+                            'image/jpeg',
+                            'image/png',
+                            'image/gif',
+                            'application/pdf',
+                            'application/msword',
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'text/plain'
+                        ]
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok || response.status === 409) {
+                    statusDiv.innerHTML = '<div class="status success">✅ Bucket criado com sucesso!</div>';
+                    button.innerHTML = '✅ Bucket Criado';
+                    showSQLStep();
+                } else {
+                    throw new Error(data.message || 'Erro desconhecido');
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                statusDiv.innerHTML = `<div class="status error">❌ Erro: ${error.message}</div>`;
+                button.disabled = false;
+                button.innerHTML = 'Tentar Novamente';
+            }
+        }
+
+        function showSQLStep() {
+            document.getElementById('sqlStep').style.display = 'block';
+            document.getElementById('sqlCode').textContent = SQL_SCRIPT;
+        }
+
+        function copySQL() {
+            navigator.clipboard.writeText(SQL_SCRIPT);
+            alert('✅ SQL copiado para a área de transferência!');
+        }
+
+        function openSQLEditor() {
+            window.open('https://supabase.com/dashboard/project/wbvkjqfxdpbhpkjzqfqr/sql/new', '_blank');
+        }
+    </script>
+</body>
+
+</html>

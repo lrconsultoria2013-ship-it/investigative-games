@@ -14,6 +14,7 @@ import { Download, Save } from 'lucide-react';
 import Button from './components/ui/Button';
 import { supabase } from './lib/supabase';
 import './lib/initStorage'; // Make storage init available globally
+import './lib/setupStorage'; // Make complete setup available globally
 
 type ViewState = 'login' | 'dashboard' | 'cases' | 'create_case' | 'layout_print' | 'code_management' | 'virtual_agents' | 'reports' | 'settings';
 
