@@ -468,15 +468,37 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
                                                 <h1 className="uppercase text-3xl font-bold mb-6 text-slate-900">{selectedModule.title}</h1>
                                                 {moduleBody.startsWith('http') ? (
                                                     moduleBody.match(/\.(jpeg|jpg|gif|png)$/i) ? (
-                                                        <img src={moduleBody} alt="Evidência" className="max-w-full h-auto rounded border border-slate-200" />
-                                                    ) : (
-                                                        <div className="flex flex-col items-center justify-center p-8 border border-slate-200 bg-slate-50 rounded">
-                                                            <FileText size={48} className="text-slate-400 mb-2" />
-                                                            <p className="text-sm text-slate-500 mb-2">Arquivo Anexo</p>
-                                                            <a href={moduleBody} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline text-xs">
-                                                                Abrir arquivo original em nova aba
+                                                        <div className="text-center">
+                                                            <img src={moduleBody} alt="Evidência" className="max-w-full h-auto rounded border border-slate-200 shadow-sm mx-auto" />
+                                                            <a href={moduleBody} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 text-brand-600 hover:underline text-sm">
+                                                                📥 Baixar imagem original
                                                             </a>
-                                                            {/* Embed for PDF if possible, or just link */}
+                                                        </div>
+                                                    ) : moduleBody.match(/\.pdf$/i) ? (
+                                                        <div className="border border-slate-200 rounded overflow-hidden">
+                                                            <iframe
+                                                                src={moduleBody}
+                                                                className="w-full h-[600px]"
+                                                                title="PDF Preview"
+                                                            />
+                                                            <div className="bg-slate-50 p-4 border-t border-slate-200">
+                                                                <a href={moduleBody} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-brand-600 hover:underline text-sm font-medium">
+                                                                    <FileText size={16} className="mr-2" />
+                                                                    Abrir PDF em nova aba
+                                                                </a>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-300 bg-slate-50 rounded-lg">
+                                                            <FileText size={64} className="text-slate-400 mb-4" />
+                                                            <p className="text-lg font-medium text-slate-700 mb-2">Arquivo Anexo</p>
+                                                            <p className="text-sm text-slate-500 mb-6">
+                                                                {moduleBody.split('/').pop()?.split('_').slice(1).join('_') || 'Documento'}
+                                                            </p>
+                                                            <a href={moduleBody} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
+                                                                <FileText size={16} className="mr-2" />
+                                                                Abrir arquivo
+                                                            </a>
                                                         </div>
                                                     )
                                                 ) : (
