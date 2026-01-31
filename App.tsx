@@ -9,6 +9,7 @@ import CodeManagementScreen from './components/CodeManagementScreen';
 import VirtualAgentsScreen from './components/VirtualAgentsScreen';
 import ReportsScreen from './components/ReportsScreen';
 import SettingsScreen from './components/SettingsScreen';
+import QuickStorageSetup from './components/QuickStorageSetup';
 import AdminLayout from './components/AdminLayout';
 import { Download, Save } from 'lucide-react';
 import Button from './components/ui/Button';
@@ -16,7 +17,7 @@ import { supabase } from './lib/supabase';
 import './lib/initStorage'; // Make storage init available globally
 import './lib/setupStorage'; // Make complete setup available globally
 
-type ViewState = 'login' | 'dashboard' | 'cases' | 'create_case' | 'layout_print' | 'code_management' | 'virtual_agents' | 'reports' | 'settings';
+type ViewState = 'login' | 'dashboard' | 'cases' | 'create_case' | 'layout_print' | 'code_management' | 'virtual_agents' | 'reports' | 'settings' | 'storage_setup';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('login');
@@ -185,6 +186,7 @@ const App: React.FC = () => {
           selectedCaseId={selectedCaseId}
         />
       )}
+      {currentView === 'storage_setup' && <QuickStorageSetup />}
     </div>
   );
 };
