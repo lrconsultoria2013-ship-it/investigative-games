@@ -31,6 +31,7 @@ import Button from './ui/Button';
 import Card from './ui/Card';
 import Badge from './ui/Badge';
 import { supabase } from '../lib/supabase';
+import StorageSetup from './StorageSetup';
 
 interface CreateCaseScreenProps {
     onBack: () => void;
@@ -82,6 +83,7 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
     // Generation State
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [showStorageSetup, setShowStorageSetup] = useState(false);
 
     // Load Case Data if Editing
     useEffect(() => {
@@ -258,22 +260,38 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
 
     const uploadFile = async (file: File, path: string): Promise<string | null> => {
         try {
+            console.log('Starting file upload:', { fileName: file.name, size: file.size, path });
+
             const { data, error } = await supabase.storage
                 .from('case-files')
                 .upload(path, file, { upsert: true });
 
             if (error) {
-                console.error('Error uploading file:', error);
+                console.error('Supabase storage upload error:', error);
+
+                // Check for common errors
+                if (error.message.includes('Bucket not found') || error.message.includes('bucket')) {
+                    showNotification('❌ Bucket de storage não configurado. Veja o guia de configuração.', 'error');
+                    console.error('STORAGE NOT CONFIGURED: Please create the "case-files" bucket in Supabase Dashboard');
+                } else {
+                    showNotification(`Erro no upload: ${error.message}`, 'error');
+                }
                 throw error;
             }
+
+            console.log('File uploaded successfully:', data);
 
             const { data: { publicUrl } } = supabase.storage
                 .from('case-files')
                 .getPublicUrl(path);
 
+            console.log('Public URL generated:', publicUrl);
             return publicUrl;
-        } catch (error) {
-            console.error(error);
+        } catch (error: any) {
+            console.error('Upload file exception:', error);
+            if (!error.message?.includes('Bucket')) {
+                showNotification(`Falha no upload do arquivo: ${error.message || 'Erro desconhecido'}`, 'error');
+            }
             return null;
         }
     };
@@ -303,6 +321,8 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                 copies_sold: 0 // New cases start with 0
             };
 
+            console.log('Saving case with payload:', casePayload);
+
             if (currentCaseId) {
                 // UPDATE
                 const { error: updateError } = await supabase
@@ -318,7 +338,10 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                     .select()
                     .single();
 
-                if (newCase) currentCaseId = newCase.id;
+                if (newCase) {
+                    currentCaseId = newCase.id;
+                    console.log('New case created with ID:', currentCaseId);
+                }
                 error = insertError;
             }
 
@@ -326,15 +349,35 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
             if (!currentCaseId) throw new Error('Falha ao obter ID do caso.');
 
             // 2. Save Modules (Documents)
+            console.log('Processing documents:', documents.length);
+
             for (const doc of documents) {
                 let contentUrl = doc.content;
 
+                console.log('Processing document:', {
+                    id: doc.id,
+                    title: doc.title,
+                    type: doc.type,
+                    hasFileObj: !!doc.fileObj,
+                    contentPreview: doc.content.substring(0, 50)
+                });
+
                 // Upload File if it's a new file (fileObj exists)
                 if (doc.type === 'file' && doc.fileObj) {
+                    console.log('Uploading file for document:', doc.title);
                     // Upload to a folder named after the case ID
                     const fileName = `${currentCaseId}/${Date.now()}_${doc.fileObj.name}`;
                     const publicUrl = await uploadFile(doc.fileObj, fileName);
-                    if (publicUrl) contentUrl = publicUrl;
+
+                    if (publicUrl) {
+                        contentUrl = publicUrl;
+                        console.log('File uploaded successfully, URL:', publicUrl);
+                    } else {
+                        console.error('Upload failed for document:', doc.title);
+                        showNotification(`Falha ao fazer upload do arquivo: ${doc.title}`, 'error');
+                        // Continue with other documents even if one fails
+                        continue;
+                    }
                 }
 
                 // Prepare content as JSON for LayoutPrintScreen compatibility
@@ -353,27 +396,37 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                     type: doc.type === 'file' ? 'evidence' : 'narrative',
                     content: contentJSON, // Save as JSON
                     status: 'draft',
-                    // Safe cast or default for upsert
                 };
+
+                console.log('Saving module with payload:', modulePayload);
 
                 // Upsert logic
                 // If ID is clean UUID, update. If temp ID, insert.
                 const isTempId = doc.id.startsWith('doc-') || doc.id.startsWith('ai-');
 
                 if (isTempId) {
-                    await supabase.from('modules').insert(modulePayload);
+                    const { error: insertError } = await supabase.from('modules').insert(modulePayload);
+                    if (insertError) {
+                        console.error('Error inserting module:', insertError);
+                        throw insertError;
+                    }
                 } else {
-                    await supabase.from('modules').update(modulePayload).eq('id', doc.id);
+                    const { error: updateError } = await supabase.from('modules').update(modulePayload).eq('id', doc.id);
+                    if (updateError) {
+                        console.error('Error updating module:', updateError);
+                        throw updateError;
+                    }
                 }
             }
 
+            console.log('All documents saved successfully');
             showNotification('Caso salvo com sucesso!', 'success');
             // Optional: Navigate to detail or list view
             setTimeout(() => onBack(), 1500);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving case:', error);
-            showNotification('Erro ao salvar o caso.', 'error');
+            showNotification(`Erro ao salvar o caso: ${error.message || 'Erro desconhecido'}`, 'error');
         } finally {
             setIsSaving(false);
         }
@@ -749,6 +802,11 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                     )}
                 </section>
             </main>
+
+            {/* Storage Setup Modal */}
+            {showStorageSetup && (
+                <StorageSetup onClose={() => setShowStorageSetup(false)} />
+            )}
         </div>
     );
 };
