@@ -25,6 +25,7 @@ import html2canvas from 'html2canvas';
 
 interface LayoutPrintScreenProps {
     onBack: () => void;
+    selectedCaseId?: string | null;
 }
 
 type ModuleType = 'envelope' | 'document' | 'map' | 'lab';
@@ -44,11 +45,11 @@ interface Case {
     title: string;
 }
 
-const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
+const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedCaseId }) => {
 
     // State
     const [cases, setCases] = useState<Case[]>([]);
-    const [selectedCaseId, setSelectedCaseId] = useState<string>('');
+    const [activeCaseId, setActiveCaseId] = useState<string>('');
     const [modules, setModules] = useState<KitModule[]>([]);
     const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -76,21 +77,25 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
             const { data, error } = await supabase.from('cases').select('id, title');
             if (data) {
                 setCases(data);
-                if (data.length > 0) setSelectedCaseId(data[0].id);
+                if (selectedCaseId) {
+                    setActiveCaseId(selectedCaseId);
+                } else if (data.length > 0) {
+                    setActiveCaseId(data[0].id);
+                }
             }
         };
         fetchCases();
-    }, []);
+    }, [selectedCaseId]);
 
     // Fetch Modules when Case Changes
     useEffect(() => {
-        if (!selectedCaseId) return;
+        if (!activeCaseId) return;
         const fetchModules = async () => {
             setLoading(true);
             const { data, error } = await supabase
                 .from('modules')
                 .select('*')
-                .eq('case_id', selectedCaseId)
+                .eq('case_id', activeCaseId)
                 .order('created_at', { ascending: true });
 
             if (data) {
@@ -104,7 +109,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
             setLoading(false);
         };
         fetchModules();
-    }, [selectedCaseId]);
+    }, [activeCaseId]);
 
     const resetEditor = () => {
         setModuleBody('');
@@ -152,7 +157,7 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
         const { data, error } = await supabase
             .from('modules')
             .insert({
-                case_id: selectedCaseId,
+                case_id: activeCaseId,
                 title: newModuleTitle,
                 type: newModuleType,
                 description: 'Novo módulo.',
@@ -314,8 +319,8 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack }) => {
                             <div className="relative">
                                 <select
                                     className="appearance-none bg-transparent font-bold text-slate-800 text-lg pr-8 focus:outline-none cursor-pointer"
-                                    value={selectedCaseId}
-                                    onChange={(e) => setSelectedCaseId(e.target.value)}
+                                    value={activeCaseId}
+                                    onChange={(e) => setActiveCaseId(e.target.value)}
                                 >
                                     {cases.map(c => (
                                         <option key={c.id} value={c.id}>{c.title}</option>

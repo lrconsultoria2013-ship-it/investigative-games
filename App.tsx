@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import LoginScreen from './components/LoginScreen';
 import DashboardScreen from './components/DashboardScreen';
@@ -9,7 +10,7 @@ import VirtualAgentsScreen from './components/VirtualAgentsScreen';
 import ReportsScreen from './components/ReportsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import AdminLayout from './components/AdminLayout';
-import { Download, Plus, Save } from 'lucide-react';
+import { Download, Save } from 'lucide-react';
 import Button from './components/ui/Button';
 import { supabase } from './lib/supabase';
 
@@ -19,6 +20,9 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('login');
   // Track where the user came from when entering layout view
   const [layoutSource, setLayoutSource] = useState<'dashboard' | 'cases' | 'create_case'>('create_case');
+  // Selected Case ID for editing/diagramming
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+
 
   useEffect(() => {
     // Check active session
@@ -34,11 +38,6 @@ const App: React.FC = () => {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         // Only redirect to dashboard if currently on login
-        // This prevents resetting view when purely refreshing token or switching tabs
-        // But for simplicity in this structure:
-        // setCurrentView('dashboard'); 
-        // Better: let the user stay where they are, but if they are on login and get a session, move them.
-        // However, if they logout, move to login.
       } else {
         setCurrentView('login');
       }
@@ -60,10 +59,6 @@ const App: React.FC = () => {
     setCurrentView(view as ViewState);
   };
 
-  const handleBackToDashboard = () => {
-    setCurrentView('dashboard');
-  };
-
   const handleBackFromLayout = () => {
     if (layoutSource === 'dashboard') {
       setCurrentView('dashboard');
@@ -72,6 +67,16 @@ const App: React.FC = () => {
     } else {
       setCurrentView('create_case');
     }
+  };
+
+  const startCreateCase = () => {
+    setSelectedCaseId(null); // Clear selection for new case
+    setCurrentView('create_case');
+  };
+
+  const startEditCase = (id: string) => {
+    setSelectedCaseId(id);
+    setCurrentView('create_case');
   };
 
   const getPageTitle = () => {
@@ -112,7 +117,7 @@ const App: React.FC = () => {
           currentView={currentView}
           onNavigate={handleNavigate}
           onLogout={handleLogout}
-          onCreateCase={() => setCurrentView('create_case')}
+          onCreateCase={startCreateCase}
           title={getPageTitle()}
           subtitle={getPageSubtitle()}
           actions={
@@ -144,9 +149,12 @@ const App: React.FC = () => {
           {currentView === 'dashboard' && <DashboardScreen />}
           {currentView === 'cases' && (
             <CasesScreen
-              onCreateCase={() => setCurrentView('create_case')}
-              onNavigateToLayout={() => {
+              onCreateCase={startCreateCase}
+              onEditCase={startEditCase}
+              onNavigateToLayout={(id) => {
                 setLayoutSource('cases');
+                // If ID provided, select it, otherwise use existing selection or null
+                if (id) setSelectedCaseId(id);
                 setCurrentView('layout_print');
               }}
             />
@@ -161,6 +169,7 @@ const App: React.FC = () => {
       {/* Focus Mode Screens (Full Screen) */}
       {currentView === 'create_case' && (
         <CreateCaseScreen
+          caseId={selectedCaseId}
           onBack={() => setCurrentView('cases')}
           onNavigateToLayout={() => {
             setLayoutSource('create_case');
@@ -169,7 +178,10 @@ const App: React.FC = () => {
         />
       )}
       {currentView === 'layout_print' && (
-        <LayoutPrintScreen onBack={handleBackFromLayout} />
+        <LayoutPrintScreen
+          onBack={handleBackFromLayout}
+          selectedCaseId={selectedCaseId}
+        />
       )}
     </div>
   );

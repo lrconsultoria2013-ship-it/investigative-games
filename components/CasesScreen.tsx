@@ -21,12 +21,14 @@ import Badge from './ui/Badge';
 import { Case, CaseStatus } from '../types';
 import { supabase } from '../lib/supabase';
 
+
 interface CasesScreenProps {
     onCreateCase: () => void;
-    onNavigateToLayout: () => void;
+    onEditCase: (id: string) => void;
+    onNavigateToLayout: (id: string) => void;
 }
 
-const CasesScreen: React.FC<CasesScreenProps> = ({ onCreateCase, onNavigateToLayout }) => {
+const CasesScreen: React.FC<CasesScreenProps> = ({ onCreateCase, onEditCase, onNavigateToLayout }) => {
     /* Supabase Integration */
     const [cases, setCases] = useState<Case[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -167,7 +169,7 @@ const CasesScreen: React.FC<CasesScreenProps> = ({ onCreateCase, onNavigateToLay
                                                 </div>
                                                 <div>
                                                     <h3 className="font-bold text-slate-900 text-base">{game.title}</h3>
-                                                    <p className="text-xs text-slate-500 mt-0.5">ID: {game.id.padStart(4, '0')} • Versão 1.0</p>
+                                                    <p className="text-xs text-slate-500 mt-0.5">ID: {game.id.substring(0, 8)}... • Versão 1.0</p>
                                                 </div>
                                             </div>
                                         </td>
@@ -194,7 +196,7 @@ const CasesScreen: React.FC<CasesScreenProps> = ({ onCreateCase, onNavigateToLay
                                         <td className="py-4">
                                             <div className="flex items-center text-slate-500 text-xs">
                                                 <Clock size={12} className="mr-1.5" />
-                                                {game.created_at}
+                                                {new Date(game.created_at).toLocaleDateString()}
                                             </div>
                                         </td>
                                         <td className="py-4 pr-6 text-right">
@@ -202,14 +204,14 @@ const CasesScreen: React.FC<CasesScreenProps> = ({ onCreateCase, onNavigateToLay
                                                 <button
                                                     className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
                                                     title="Editar Conteúdo"
-                                                    onClick={onCreateCase} // Reuses create screen for edit
+                                                    onClick={() => onEditCase(game.id)}
                                                 >
                                                     <Edit3 size={16} />
                                                 </button>
                                                 <button
                                                     className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
                                                     title="Diagramação e Impressão"
-                                                    onClick={onNavigateToLayout}
+                                                    onClick={() => onNavigateToLayout(game.id)}
                                                 >
                                                     <Printer size={16} />
                                                 </button>

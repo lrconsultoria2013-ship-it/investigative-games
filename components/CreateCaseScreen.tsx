@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     ArrowLeft,
     Sparkles,
@@ -34,7 +34,8 @@ import { supabase } from '../lib/supabase';
 
 interface CreateCaseScreenProps {
     onBack: () => void;
-    onNavigateToLayout: () => void;
+    onNavigateToLayout?: () => void;
+    caseId?: string | null;
 }
 
 type CreationMode = 'ai' | 'manual';
@@ -45,16 +46,17 @@ interface CaseDocument {
     title: string;
     summary: string;
     type: DocType;
-    content: string; // Text content or File name/URL
-    fileObj?: File; // Temporary file object storage
+    content: string; // Text content or File name or URL
     category: 'narrative' | 'evidence' | 'profile';
     ageRating: string;
+    fileObj?: File; // Temporary file object for uploads
 }
 
-const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateToLayout }) => {
+const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateToLayout, caseId }) => {
     // Mode State
     const [creationMode, setCreationMode] = useState<CreationMode>('manual');
     const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const [loadingCase, setLoadingCase] = useState(false);
 
     // Case Metadata
     const [title, setTitle] = useState('');
@@ -80,6 +82,64 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
     // Generation State
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+
+    // Load Case Data if Editing
+    useEffect(() => {
+        if (!caseId) return;
+
+        const loadCase = async () => {
+            setLoadingCase(true);
+            try {
+                // 1. Fetch Case Details
+                const { data: caseData, error: caseError } = await supabase
+                    .from('cases')
+                    .select('*')
+                    .eq('id', caseId)
+                    .single();
+
+                if (caseError) throw caseError;
+
+                if (caseData) {
+                    setTitle(caseData.title);
+                    setTheme(caseData.theme);
+                    setAge(caseData.age_rating || '14');
+                    setComplexity(caseData.complexity || 'medium');
+                    setAiPrompt(caseData.summary || ''); // Assuming summary can be aiPrompt
+                }
+
+                // 2. Fetch Modules (Documents)
+                const { data: modulesData, error: modulesError } = await supabase
+                    .from('modules')
+                    .select('*')
+                    .eq('case_id', caseId)
+                    .order('created_at', { ascending: true });
+
+                if (modulesError) throw modulesError;
+
+                if (modulesData && modulesData.length > 0) {
+                    const mappedDocs: CaseDocument[] = modulesData.map((m: any) => ({
+                        id: m.id,
+                        title: m.title,
+                        summary: m.description || '',
+                        type: m.type === 'evidence' && m.content.startsWith('http') ? 'file' : 'text', // Simple detection
+                        content: m.content,
+                        category: m.type === 'evidence' ? 'evidence' : 'narrative', // Simplified mapping
+                        ageRating: '14' // Defaulting, as module age_rating is not stored
+                    }));
+                    setDocuments(mappedDocs);
+                    setSelectedDocId(mappedDocs[0].id);
+                }
+
+            } catch (err) {
+                console.error('Error loading case:', err);
+                showNotification('Erro ao carregar dados do caso.', 'error');
+            } finally {
+                setLoadingCase(false);
+            }
+        };
+
+        loadCase();
+    }, [caseId]);
 
     const selectedDoc = documents.find(d => d.id === selectedDocId);
 
@@ -205,6 +265,7 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
         }
     };
 
+
     const handleSaveCase = async () => {
         // Validate
         if (!title) {
@@ -213,58 +274,75 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
         }
 
         setIsSaving(true);
+        let currentCaseId = caseId;
 
         try {
-            // 1. Create Case
-            const { data: caseData, error: caseError } = await supabase
-                .from('cases')
-                .insert({
-                    title,
-                    theme,
-                    status: 'editing',
-                    age_rating: age,
-                    complexity,
-                    summary: aiPrompt || 'Caso criado manualmente',
-                    copies_sold: 0
-                })
-                .select()
-                .single();
+            let error;
 
-            if (caseError || !caseData) throw caseError || new Error('Failed to create case');
+            // 1. Save or Update Case
+            const casePayload = {
+                title,
+                theme,
+                status: 'editing', // Default status
+                age_rating: age,
+                complexity,
+                summary: documents[0]?.summary || '',
+                copies_sold: 0 // New cases start with 0
+            };
 
-            const caseId = caseData.id;
+            if (currentCaseId) {
+                // UPDATE
+                const { error: updateError } = await supabase
+                    .from('cases')
+                    .update(casePayload)
+                    .eq('id', currentCaseId);
+                error = updateError;
+            } else {
+                // INSERT
+                const { data: newCase, error: insertError } = await supabase
+                    .from('cases')
+                    .insert(casePayload)
+                    .select()
+                    .single();
 
-            // 2. Process and Save Modules (Documents)
+                if (newCase) currentCaseId = newCase.id;
+                error = insertError;
+            }
+
+            if (error) throw error;
+            if (!currentCaseId) throw new Error('Falha ao obter ID do caso.');
+
+            // 2. Save Modules (Documents)
             for (const doc of documents) {
-                let content = doc.content;
+                let contentUrl = doc.content;
 
-                // Handle File Upload
+                // Upload File if it's a new file (fileObj exists)
                 if (doc.type === 'file' && doc.fileObj) {
-                    const fileName = `${caseId}/${doc.id}_${doc.fileObj.name}`;
+                    // Upload to a folder named after the case ID
+                    const fileName = `${currentCaseId}/${Date.now()}_${doc.fileObj.name}`;
                     const publicUrl = await uploadFile(doc.fileObj, fileName);
-
-                    if (publicUrl) {
-                        content = publicUrl;
-                    } else {
-                        console.error(`Failed to upload file for doc ${doc.id}`);
-                        showNotification(`Erro ao fazer upload do arquivo: ${doc.fileObj.name}`, 'error');
-                        // Continue saving other modules even if one fails
-                    }
+                    if (publicUrl) contentUrl = publicUrl;
                 }
 
-                // Save Module
-                const { error: moduleError } = await supabase
-                    .from('modules')
-                    .insert({
-                        case_id: caseId,
-                        title: doc.title,
-                        type: doc.type === 'file' ? 'evidence' : 'document', // Mapping to ModuleType
-                        description: doc.summary,
-                        content: content, // URL or Text
-                        status: 'draft'
-                    });
+                const modulePayload = {
+                    case_id: currentCaseId,
+                    title: doc.title,
+                    description: doc.summary,
+                    type: doc.type === 'file' ? 'evidence' : 'narrative',
+                    content: contentUrl,
+                    status: 'draft',
+                    // Safe cast or default for upsert
+                };
 
-                if (moduleError) console.error(`Error saving module ${doc.id}:`, moduleError);
+                // Upsert logic
+                // If ID is clean UUID, update. If temp ID, insert.
+                const isTempId = doc.id.startsWith('doc-') || doc.id.startsWith('ai-');
+
+                if (isTempId) {
+                    await supabase.from('modules').insert(modulePayload);
+                } else {
+                    await supabase.from('modules').update(modulePayload).eq('id', doc.id);
+                }
             }
 
             showNotification('Caso salvo com sucesso!', 'success');
