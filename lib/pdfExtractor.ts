@@ -1,8 +1,10 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { createWorker } from 'tesseract.js';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Configure PDF.js worker - use a more reliable CDN
+if (typeof window !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+}
 
 /**
  * Extract text from a PDF file
@@ -11,13 +13,24 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.j
  */
 export async function extractTextFromPDF(file: File): Promise<string> {
     try {
+        console.log('Iniciando extração de texto do PDF...');
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+        console.log('PDF carregado, tamanho:', arrayBuffer.byteLength, 'bytes');
+
+        const loadingTask = pdfjsLib.getDocument({
+            data: arrayBuffer,
+            verbosity: 0 // Reduce console spam
+        });
+
+        const pdf = await loadingTask.promise;
+        console.log('PDF processado, total de páginas:', pdf.numPages);
 
         let fullText = '';
 
         // Extract text from each page
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            console.log(`Extraindo texto da página ${pageNum}/${pdf.numPages}...`);
             const page = await pdf.getPage(pageNum);
             const textContent = await page.getTextContent();
 
@@ -25,13 +38,16 @@ export async function extractTextFromPDF(file: File): Promise<string> {
                 .map((item: any) => item.str)
                 .join(' ');
 
-            fullText += `\n\n--- Página ${pageNum} ---\n\n${pageText}`;
+            if (pageText.trim()) {
+                fullText += `\n\n--- Página ${pageNum} ---\n\n${pageText}`;
+            }
         }
 
+        console.log('Extração concluída. Total de caracteres:', fullText.length);
         return fullText.trim();
-    } catch (error) {
-        console.error('Erro ao extrair texto do PDF:', error);
-        throw new Error('Falha ao extrair texto do PDF');
+    } catch (error: any) {
+        console.error('Erro detalhado ao extrair texto do PDF:', error);
+        throw new Error(`Falha ao extrair texto do PDF: ${error.message}`);
     }
 }
 
@@ -87,7 +103,8 @@ export async function extractTextFromScannedPDF(file: File, onProgress?: (progre
 
             await page.render({
                 canvasContext: context,
-                viewport: viewport
+                viewport: viewport,
+                canvas: canvas
             }).promise;
 
             // Convert canvas to blob

@@ -330,43 +330,72 @@ const LayoutPrintScreen: React.FC<LayoutPrintScreenProps> = ({ onBack, selectedC
         setExtractionProgress(0);
 
         try {
-            // Fetch the file from URL
-            const response = await fetch(moduleBody);
-            const blob = await response.blob();
+            showNotification('Baixando arquivo...', 'success');
 
-            // Determine file type
-            const fileType = blob.type;
-            const fileName = moduleBody.split('/').pop() || 'file';
+            // Fetch the file from URL with mode: 'cors'
+            const response = await fetch(moduleBody, {
+                mode: 'cors',
+                credentials: 'omit'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Falha ao baixar arquivo: ${response.status} ${response.statusText}`);
+            }
+
+            const blob = await response.blob();
+            console.log('Arquivo baixado:', blob.size, 'bytes, tipo:', blob.type);
+
+            // Determine file type from URL and blob
+            const fileName = moduleBody.split('/').pop()?.split('?')[0] || 'file';
+            const fileExtension = fileName.split('.').pop()?.toLowerCase();
+
+            // Force correct MIME type based on extension if blob type is generic
+            let fileType = blob.type;
+            if (fileExtension === 'pdf' && (!fileType || fileType === 'application/octet-stream')) {
+                fileType = 'application/pdf';
+            }
+
             const file = new File([blob], fileName, { type: fileType });
+            console.log('Arquivo preparado:', fileName, 'tipo:', fileType);
 
             let extractedText = '';
 
-            if (fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
+            if (fileType === 'application/pdf' || fileExtension === 'pdf') {
                 // PDF file - use smart extraction
-                showNotification('Extraindo texto do PDF...', 'success');
+                showNotification('Extraindo texto do PDF... Isso pode levar alguns minutos.', 'success');
+                setExtractionProgress(10);
                 extractedText = await smartExtractPDF(file, (progress) => {
-                    setExtractionProgress(progress);
+                    setExtractionProgress(10 + Math.round(progress * 0.9));
                 });
-            } else if (fileType.startsWith('image/')) {
+            } else if (fileType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(fileExtension || '')) {
                 // Image file - use OCR
                 showNotification('Realizando OCR na imagem...', 'success');
+                setExtractionProgress(10);
                 extractedText = await performOCR(file, (progress) => {
-                    setExtractionProgress(progress);
+                    setExtractionProgress(10 + Math.round(progress * 0.9));
                 });
             } else {
-                throw new Error('Tipo de arquivo não suportado para extração de texto');
+                throw new Error(`Tipo de arquivo não suportado: ${fileType || fileExtension}`);
+            }
+
+            if (!extractedText || extractedText.length < 10) {
+                throw new Error('Nenhum texto foi extraído do arquivo. O arquivo pode estar vazio ou corrompido.');
             }
 
             // Update the module body with extracted text
             setModuleBody(extractedText);
-            showNotification('Texto extraído com sucesso! Agora você pode editar.', 'success');
+            setExtractionProgress(100);
+            showNotification(`✅ Texto extraído com sucesso! ${extractedText.length} caracteres. Agora você pode editar.`, 'success');
 
         } catch (error: any) {
             console.error('Erro ao extrair texto:', error);
-            showNotification(`Erro ao extrair texto: ${error.message}`, 'error');
+            const errorMessage = error.message || 'Erro desconhecido';
+            showNotification(`❌ Erro ao extrair texto: ${errorMessage}`, 'error');
         } finally {
-            setIsExtracting(false);
-            setExtractionProgress(0);
+            setTimeout(() => {
+                setIsExtracting(false);
+                setExtractionProgress(0);
+            }, 2000);
         }
     };
 
