@@ -643,40 +643,45 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                                     ) : (
                                         <div className="h-full flex flex-col">
                                             <label className="block text-sm font-medium text-slate-700 mb-2">Arquivo Anexo</label>
-                                            <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 flex flex-col items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer relative">
+                                            <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 flex flex-col items-center justify-center text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer relative group">
                                                 <input
                                                     type="file"
-                                                    className="absolute inset-0 opacity-0 cursor-pointer"
+                                                    accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
+                                                    className="absolute inset-0 opacity-0 cursor-pointer z-20 w-full h-full"
                                                     onChange={(e) => {
                                                         const file = e.target.files?.[0];
                                                         if (file) {
+                                                            console.log("File selected:", file.name); // Debug
                                                             handleUpdateDocument(selectedDoc.id, 'content', `[Arquivo: ${file.name}]`);
                                                             handleUpdateDocument(selectedDoc.id, 'fileObj', file);
                                                         }
                                                     }}
                                                 />
                                                 {selectedDoc.fileObj ? (
-                                                    <div className="text-center">
+                                                    <div className="text-center z-10 pointer-events-none">
                                                         <FileText size={48} className="mx-auto text-brand-600 mb-4" />
                                                         <p className="font-medium text-slate-800">{selectedDoc.fileObj.name}</p>
                                                         <p className="text-xs text-slate-500 mt-1">{(selectedDoc.fileObj.size / 1024).toFixed(1)} KB</p>
                                                         <p className="text-xs text-emerald-600 mt-2 font-semibold">Pronto para upload</p>
+                                                        <div className="mt-4 bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded text-xs inline-flex items-center shadow-sm">
+                                                            Trocar arquivo
+                                                        </div>
                                                     </div>
                                                 ) : (selectedDoc.content && (selectedDoc.content.startsWith('[Arquivo:') || selectedDoc.content.startsWith('http')) ? (
-                                                    <div className="text-center">
+                                                    <div className="text-center z-10 w-full px-4">
                                                         {selectedDoc.content.startsWith('http') && selectedDoc.content.match(/\.(jpeg|jpg|gif|png)$/i) ? (
-                                                            <div className="mb-4 relative">
+                                                            <div className="mb-4 relative inline-block">
                                                                 <img
                                                                     src={selectedDoc.content}
                                                                     alt="Preview"
-                                                                    className="h-32 w-auto object-cover rounded shadow-sm"
+                                                                    className="h-40 w-auto object-contain rounded shadow-sm bg-white"
                                                                 />
-                                                                <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors rounded" />
+                                                                {/* Make sure the image doesn't block clicks from bubbling to input if needed, but input is absolute on top */}
                                                             </div>
                                                         ) : (
                                                             <FileText size={48} className="mx-auto text-brand-600 mb-4" />
                                                         )}
-                                                        <p className="font-medium text-slate-800 max-w-xs truncate px-4">
+                                                        <p className="font-medium text-slate-800 max-w-full truncate px-4 block">
                                                             {selectedDoc.content.startsWith('http') ? 'Arquivo salvo na nuvem' : selectedDoc.content}
                                                         </p>
                                                         {selectedDoc.content.startsWith('http') && (
@@ -684,20 +689,31 @@ const CreateCaseScreen: React.FC<CreateCaseScreenProps> = ({ onBack, onNavigateT
                                                                 href={selectedDoc.content}
                                                                 target="_blank"
                                                                 rel="noreferrer"
-                                                                className="text-xs text-brand-600 hover:underline mt-1 block relative z-10"
+                                                                className="text-xs text-brand-600 hover:underline mt-1 block relative z-30 pointer-events-auto"
                                                                 onClick={(e) => e.stopPropagation()}
                                                             >
                                                                 Ver arquivo original
                                                             </a>
                                                         )}
                                                         <p className="text-xs text-emerald-600 mt-2 font-semibold">Arquivo selecionado</p>
-                                                        <p className="text-[10px] text-slate-400 mt-4">Clique para substituir</p>
+
+                                                        {/* Button style for "Replace" */}
+                                                        <div className="mt-4 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-md text-sm font-medium inline-flex items-center shadow-sm group-hover:bg-slate-50 transition-colors">
+                                                            <Search size={16} className="mr-2" />
+                                                            Escolher outro arquivo
+                                                        </div>
                                                     </div>
                                                 ) : (
-                                                    <div className="text-center p-8">
-                                                        <UploadCloud size={48} className="mx-auto text-slate-300 mb-4" />
-                                                        <p className="font-medium">Arraste um arquivo PDF, DOCX ou TXT</p>
-                                                        <p className="text-xs mt-2">ou clique para selecionar</p>
+                                                    <div className="text-center p-8 z-10 pointer-events-none">
+                                                        <UploadCloud size={64} className="mx-auto text-slate-300 mb-6 group-hover:text-brand-400 transition-colors" />
+                                                        <p className="font-medium text-lg text-slate-700 mb-2">Upload de Arquivo</p>
+                                                        <p className="text-sm text-slate-500 mb-6">Arraste PDF, Imagens ou Texto aqui</p>
+
+                                                        {/* The requested button */}
+                                                        <div className="bg-brand-600 text-white px-6 py-2.5 rounded-lg font-bold text-sm inline-flex items-center shadow-md group-hover:bg-brand-700 transition-transform transform group-hover:scale-105 active:scale-95">
+                                                            <Search size={18} className="mr-2" />
+                                                            Selecionar Arquivo
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
