@@ -166,6 +166,36 @@ const CodeManagementScreen: React.FC = () => {
         }
     };
 
+    const handleExport = () => {
+        if (filteredCodes.length === 0) {
+            showNotification('Não há dados para exportar.', 'error');
+            return;
+        }
+
+        const headers = ['ID', 'Código', 'Caso', 'Status', 'Criado em', 'Usado em'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredCodes.map(code => [
+                code.id,
+                code.code,
+                `"${code.caseName}"`, // Quote incase of commas
+                code.status,
+                code.createdAt,
+                code.usedAt || ''
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'codes_export.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showNotification('Arquivo CSV gerado com sucesso!', 'success');
+    };
+
     return (
         <div className="h-full overflow-y-auto p-4 md:p-6 max-w-7xl mx-auto w-full relative">
 
@@ -230,11 +260,11 @@ const CodeManagementScreen: React.FC = () => {
             <div className="flex justify-end mb-6 space-x-3">
                 <Button
                     variant="secondary"
-                    onClick={() => showNotification('Lista exportada.', 'success')}
+                    onClick={handleExport}
                     className="!w-auto"
                 >
                     <Download size={18} className="mr-2" />
-                    Exportar
+                    Exportar CSV
                 </Button>
                 <Button
                     onClick={() => setShowGenerateModal(true)}
